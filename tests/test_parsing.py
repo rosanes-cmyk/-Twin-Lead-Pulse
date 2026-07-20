@@ -103,6 +103,32 @@ def test_split_address():
     assert split_address("15510 Montreal St San Leandro, 94579") == ("15510 Montreal St", "San Leandro", "94579")
 
 
+def test_chat_conversation_timestamps():
+    from datetime import datetime
+    from pipeline.chat_parse import leads_from_conversation
+    convo = (
+        "Zapier\n,\nApp\n,\nThu 8:32 AM\n,\nZap sent by @Bryan\n"
+        "NEW LEAD - PROPERTY LEADS\nName: Varun Bhat\nPhone: 9598882646\n"
+        "Lead Source: Property Leads\nProperty Address: 7323 Bower Ln Dublin, 94568\n"
+        "ACTION NEEDED:\n,\nThu 8:32 AM\n,\n"
+        "Yesterday\nZapier\n,\nApp\n,\nYesterday 6:13 PM\n,\n"
+        "NEW LEAD - PROPERTY LEADS\nName: Elias Hernandez\nPhone: 7073642931\n"
+        "Lead Source: Property Leads\nProperty Address: 420 Henry Cowell Dr Santa Cruz, 95060\n"
+        "ACTION NEEDED:\n,\nYesterday 6:13 PM\n,\n"
+        "Today\nZapier\n,\nApp\n,\n8:49 AM\n,\n"
+        "NEW LEAD - PROPERTY LEADS\nName: Ganesh Iyer\nPhone: 2812218511\n"
+        "Lead Source: Property Leads\nProperty Address: 302 Seascape Resort Dr Aptos, 95003\n"
+        "ACTION NEEDED:\n,\n8:49 AM\n,\n"
+    )
+    now = datetime(2026, 7, 20, 13, 30)          # Monday
+    blocks = leads_from_conversation(convo, now)
+    leads = parse_notifications("\n\n".join(blocks), "auto_text", "America/Los_Angeles")
+    got = {l.seller_name: (l.date_received, l.time_received, l.day_of_week) for l in leads}
+    assert got["Varun Bhat"] == ("07/16/2026", "8:32 AM", "Thursday"), got
+    assert got["Elias Hernandez"] == ("07/19/2026", "6:13 PM", "Sunday"), got
+    assert got["Ganesh Iyer"] == ("07/20/2026", "8:49 AM", "Monday"), got
+
+
 def _run():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

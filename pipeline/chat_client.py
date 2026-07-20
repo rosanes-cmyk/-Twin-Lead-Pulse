@@ -95,21 +95,23 @@ class ChatClient:
         except Exception:
             return ""
 
-    @staticmethod
-    def _lead_blocks(text: str) -> list[str]:
-        """Split a text snapshot into 'NEW LEAD ...' blocks."""
-        import re
-        parts = re.split(r"(?i)(?=NEW LEAD\b)", text)
-        return [p.strip() for p in parts if "new lead" in p.lower()]
-
     def fetch_space_messages(self, space_url: str) -> list[str]:
-        """Open the space, scroll through history, return lead message blocks.
+        """Open the space, scroll through history, return dated lead blocks.
 
-        Reads the conversation text (which includes the lead messages) and
-        splits it into 'NEW LEAD' blocks, de-duplicated across scroll snapshots
-        (Google Chat virtualizes the list, so rows unmount as you scroll).
-        Also writes the full captured text to chat_raw.txt for tuning.
+        Google Chat virtualizes the message list (rows unmount as you scroll),
+        so we take a text snapshot at each scroll step, resolve leads+timestamps
+        from each snapshot (which has correct internal day-divider context), and
+        merge them de-duplicated and sorted oldest -> newest. The full capture is
+        also saved to chat_raw.txt for diagnosis.
         """
+        from datetime import datetime
+        try:
+            from zoneinfo import ZoneInfo
+            now = datetime.now(ZoneInfo("America/Los_Angeles"))
+        except Exception:
+            now = datetime.now()
+        from .chat_parse import leads_from_conversation
+
         if not space_url:
             raise ValueError("chat.space_url is empty — set it in config.json")
         try:
@@ -119,7 +121,7 @@ class ChatClient:
         self.page.wait_for_timeout(5000)  # let Chat's app shell render
 
         scroller = self._find_scroller()
-        seen: dict[str, str] = {}       # normalized-key -> block text (first seen)
+        merged: dict[str, str] = {}     # dedup-key -> enriched block
         snapshots: list[str] = []
         stable = 0
         for _ in range(self.cfg.max_scrolls):
@@ -127,10 +129,10 @@ class ChatClient:
             if snap:
                 snapshots.append(snap)
             added = 0
-            for block in self._lead_blocks(snap):
-                key = " ".join(block.split())[:120].lower()
-                if key not in seen:
-                    seen[key] = block
+            for block in leads_from_conversation(snap, now):
+                key = self._dedup_key(block)
+                if key not in merged:
+                    merged[key] = block
                     added += 1
             try:
                 if scroller is not None:
@@ -144,7 +146,6 @@ class ChatClient:
             if stable >= 6:             # no new leads after several scrolls -> done
                 break
 
-        # Save raw capture for diagnosis / selector tuning.
         try:
             from pathlib import Path
             Path("chat_raw.txt").write_text(
@@ -153,5 +154,19 @@ class ChatClient:
         except Exception:
             pass
 
-        blocks = list(seen.values())
-        return list(reversed(blocks))   # oldest -> newest
+        # Sort oldest -> newest by the resolved timestamp embedded in each block.
+        return sorted(merged.values(), key=self._sort_key)
+
+    @staticmethod
+    def _dedup_key(block: str) -> str:
+        import re
+        name = re.search(r"Name\s*:\s*(.+)", block, re.I)
+        addr = re.search(r"Property Address\s*:\s*(.+)", block, re.I)
+        return f"{(name.group(1) if name else '').strip().lower()}|" \
+               f"{(addr.group(1) if addr else '').strip().lower()}"
+
+    @staticmethod
+    def _sort_key(block: str) -> str:
+        import re
+        m = re.search(r"Google Chat Timestamp:\s*([0-9\-: ]+)", block)
+        return m.group(1).strip() if m else ""

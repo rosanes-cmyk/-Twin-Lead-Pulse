@@ -150,9 +150,12 @@ _STREET_RE = re.compile(
     r"Ct|Court|Way|Pl|Place|Ter|Terrace|Cir|Circle|Hwy|Highway|Pkwy|Parkway|Trl|Trail|Loop|Sq|Square)\b",
     re.I,
 )
+# ISO "2026-07-20 08:57 PST" or US "07/20/2026 8:57 AM"; trailing tz limited to
+# real abbreviations so it can't swallow following words across a newline.
+_TZ_SUFFIX = r"(?: ?(?:PST|PDT|PT|MST|MDT|CST|CDT|EST|EDT|UTC|GMT))?"
 _TIMESTAMP_RE = re.compile(
-    r"\d{4}-\d{2}-\d{2}[ T]\d{1,2}:\d{2}(?::\d{2})?(?:\s*[A-Za-z]{2,4})?"      # 2026-07-20 08:57 PST
-    r"|\d{1,2}/\d{1,2}/\d{2,4},?\s+\d{1,2}:\d{2}\s*(?:[APap]\.?[Mm]\.?)?(?:\s*[A-Za-z]{2,4})?",  # 07/20/2026 8:57 AM
+    r"\d{4}-\d{2}-\d{2}[ T]\d{1,2}:\d{2}(?::\d{2})?" + _TZ_SUFFIX
+    + r"|\d{1,2}/\d{1,2}/\d{2,4},?\s+\d{1,2}:\d{2} ?(?:[APap]\.?[Mm]\.?)?" + _TZ_SUFFIX
 )
 _SOURCE_KEYWORDS = {
     "property leads": "PPL",
