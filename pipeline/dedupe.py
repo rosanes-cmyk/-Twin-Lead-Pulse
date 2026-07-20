@@ -59,10 +59,11 @@ class DuplicateIndex:
         phone = normalize_phone(lead.seller_phone)
         email = (lead.seller_email or "").strip().lower()
 
+        # Exact match on address, phone, or email == same lead -> confirmed.
         if addr and addr in self.addresses:
             return "Yes"
         if phone and phone in self.phones:
-            return "Possible"
+            return "Yes"
         if email and email in self.emails:
-            return "Possible"
+            return "Yes"
         return "No"
