@@ -1,7 +1,7 @@
 {
   "sheet_id": "1V_inTkuXkFDLNyDxxa5foM5Bxe2rUOfB6a_c1r_9tSw",
   "worksheet_name": "Raw Lead Data",
-  "auth_mode": "oauth",
+  "auth_mode": "service_account",
   "google_credentials_path": "credentials.json",
   "google_token_path": "token.json",
   "leads_input_path": "leads.txt",
