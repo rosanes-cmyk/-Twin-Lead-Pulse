@@ -40,6 +40,8 @@ def main(argv=None) -> int:
     ap.add_argument("--from-chat", action="store_true",
                     help="read leads directly from the Google Chat space")
     ap.add_argument("--no-rei", action="store_true", help="skip REI BlackBook enrichment")
+    ap.add_argument("--write-duplicates", action="store_true",
+                    help="write rows even for leads already in the sheet (default: skip them)")
     ap.add_argument("--dry-run", action="store_true", help="parse + print only; no sheet writes")
     args = ap.parse_args(argv)
 
@@ -104,17 +106,23 @@ def main(argv=None) -> int:
         print("Skipping REI enrichment.")
 
     # --- write rows ---
+    skip_dupes = cfg.skip_confirmed_duplicates and not args.write_duplicates
     row = writer.next_row()
+    written = skipped = 0
     for lead in leads:
+        if skip_dupes and lead.duplicate == "Yes":
+            print(f"  skip (already in sheet): {lead.property_address or lead.seller_name}")
+            skipped += 1
+            continue
         writer.write_lead(lead, row)
         print(f"  wrote row {row}: {lead.lead_id}  {lead.property_address or '(no address)'}"
               f"  [{lead.duplicate}] REI={lead.rei_match or '-'}")
         row += 1
+        written += 1
 
-    print(f"\nDone. {len(leads)} lead(s) written to '{cfg.worksheet_name}'.")
-    dups = sum(1 for l in leads if l.duplicate != "No")
+    print(f"\nDone. {written} lead(s) written to '{cfg.worksheet_name}', {skipped} skipped as duplicates.")
     needs = sum(1 for l in leads if l.verification_status not in ("Verified", ""))
-    print(f"Duplicates flagged: {dups} | Needs review: {needs}")
+    print(f"Needs review: {needs}")
     return 0
 
 

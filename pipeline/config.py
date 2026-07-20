@@ -52,6 +52,10 @@ class Config:
     entered_by: str = "Jonathan"
     original_source_location: str = "Google Chat"
     lead_id_prefix: str = "PPL-"                 # used when a lead has no id of its own
+    # Skip writing leads already present in the sheet (Duplicate? == "Yes").
+    # Essential for recurring runs that re-read the whole Chat history each time.
+    # "Possible" duplicates are still written and flagged for review.
+    skip_confirmed_duplicates: bool = True
     rei: ReiConfig = field(default_factory=ReiConfig)
     chat: ChatConfig = field(default_factory=ChatConfig)
 
