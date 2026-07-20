@@ -4,9 +4,11 @@ token.json
 *.credentials.json
 service_account*.json
 
-# REI BlackBook browser profile (holds your logged-in session)
+# Browser profiles (hold your logged-in sessions) & scraped data
 .rei_profile/
+.chat_profile/
 *_profile/
+chat_dump.txt
 
 # Real data & local config
 config.json

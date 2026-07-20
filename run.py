@@ -37,19 +37,25 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Twin Lead Pulse lead pipeline")
     ap.add_argument("--config", default="config.json")
     ap.add_argument("--leads", help="override leads input path from config")
+    ap.add_argument("--from-chat", action="store_true",
+                    help="read leads directly from the Google Chat space")
     ap.add_argument("--no-rei", action="store_true", help="skip REI BlackBook enrichment")
     ap.add_argument("--dry-run", action="store_true", help="parse + print only; no sheet writes")
     args = ap.parse_args(argv)
 
     cfg = Config.load(args.config)
-    leads_path = Path(args.leads or cfg.leads_input_path)
-    if not leads_path.exists():
-        print(f"ERROR: leads input not found: {leads_path}", file=sys.stderr)
-        return 2
 
-    raw = leads_path.read_text(encoding="utf-8")
+    if args.from_chat or cfg.leads_source == "chat":
+        raw = _read_from_chat(cfg)
+    else:
+        leads_path = Path(args.leads or cfg.leads_input_path)
+        if not leads_path.exists():
+            print(f"ERROR: leads input not found: {leads_path}", file=sys.stderr)
+            return 2
+        raw = leads_path.read_text(encoding="utf-8")
+
     leads = parse_notifications(raw, cfg.leads_format, cfg.source_timezone)
-    print(f"Parsed {len(leads)} lead notification(s) from {leads_path}")
+    print(f"Parsed {len(leads)} lead notification(s)")
 
     today = _today_pacific()
     for lead in leads:
@@ -110,6 +116,22 @@ def main(argv=None) -> int:
     needs = sum(1 for l in leads if l.verification_status not in ("Verified", ""))
     print(f"Duplicates flagged: {dups} | Needs review: {needs}")
     return 0
+
+
+def _read_from_chat(cfg) -> str:
+    """Scrape the Google Chat space and return raw text (blank-line separated).
+
+    Also writes everything captured to chat_dump.txt so you can verify what was
+    read (and share it if the parser needs tuning to your format).
+    """
+    from pipeline.chat_client import ChatClient
+    print(f"Reading Google Chat space (channel={cfg.chat.channel or 'bundled chromium'})...")
+    with ChatClient(cfg.chat) as chat:
+        messages = chat.fetch_space_messages(cfg.chat.space_url)
+    dump = "\n\n".join(messages)
+    Path("chat_dump.txt").write_text(dump, encoding="utf-8")
+    print(f"Captured {len(messages)} message block(s) -> chat_dump.txt")
+    return dump
 
 
 def _print_preview(leads) -> None:
