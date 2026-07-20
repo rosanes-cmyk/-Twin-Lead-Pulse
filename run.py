@@ -87,12 +87,15 @@ def main(argv=None) -> int:
             lead.lead_id = f"{cfg.lead_id_prefix}{i:04d}"
         index.add(address=lead.property_address, phone=lead.seller_phone, email=lead.seller_email)
 
-    # --- REI enrichment (optional) ---
-    if cfg.rei.enabled and not args.no_rei:
+    skip_dupes = cfg.skip_confirmed_duplicates and not args.write_duplicates
+    to_write = [l for l in leads if not (skip_dupes and l.duplicate == "Yes")]
+
+    # --- REI enrichment (optional) — only for leads we'll actually write ---
+    if cfg.rei.enabled and not args.no_rei and to_write:
         from pipeline.rei_client import ReiClient
-        print("Enriching via REI BlackBook (read-only)...")
+        print(f"Enriching {len(to_write)} lead(s) via REI BlackBook (read-only)...")
         with ReiClient(cfg.rei) as rei:
-            for lead in leads:
+            for lead in to_write:
                 result = rei.enrich(lead)
                 lead.rei_match = result.match
                 lead.rei_contact_link = result.contact_link
@@ -106,7 +109,6 @@ def main(argv=None) -> int:
         print("Skipping REI enrichment.")
 
     # --- write rows ---
-    skip_dupes = cfg.skip_confirmed_duplicates and not args.write_duplicates
     row = writer.next_row()
     written = skipped = 0
     for lead in leads:
