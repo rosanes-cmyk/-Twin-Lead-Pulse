@@ -43,6 +43,8 @@ def main(argv=None) -> int:
     ap.add_argument("--write-duplicates", action="store_true",
                     help="write rows even for leads already in the sheet (default: skip them)")
     ap.add_argument("--dry-run", action="store_true", help="parse + print only; no sheet writes")
+    ap.add_argument("--rei-test", action="store_true",
+                    help="run REI lookups on parsed leads and print results; no sheet writes")
     args = ap.parse_args(argv)
 
     cfg = Config.load(args.config)
@@ -68,6 +70,20 @@ def main(argv=None) -> int:
     if args.dry_run:
         _print_preview(leads)
         print("\n[dry-run] No changes written.")
+        return 0
+
+    if args.rei_test:
+        from pipeline.rei_client import ReiClient
+        print("REI test (read-only, no sheet writes)...")
+        with ReiClient(cfg.rei) as rei:
+            for lead in leads:
+                r = rei.enrich(lead)
+                print("-" * 60)
+                print(f"  {lead.seller_name or '(no name)'} @ {lead.property_address or '(no addr)'}")
+                print(f"  match={r.match}  link={r.contact_link or '-'}")
+                print(f"  tags={r.tags or '-'}")
+                print(f"  status={r.status or '-'}  notes={r.notes or '-'}")
+        print("\n[rei-test] No changes written.")
         return 0
 
     # --- connect to sheet, seed dedupe index ---
