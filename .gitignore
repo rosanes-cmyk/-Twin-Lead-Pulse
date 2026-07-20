@@ -9,6 +9,7 @@ service_account*.json
 .chat_profile/
 *_profile/
 chat_dump.txt
+chat_raw.txt
 
 # Real data & local config
 config.json

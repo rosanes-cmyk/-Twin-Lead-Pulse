@@ -83,42 +83,55 @@ class ChatClient:
                 continue
         return None
 
-    def _collect_messages(self) -> list[str]:
-        """Grab message texts from whatever is currently rendered."""
-        out: list[str] = []
-        for sel in _MESSAGE_SELECTORS:
-            try:
-                texts = self.page.eval_on_selector_all(
-                    sel, "els => els.map(e => (e.innerText||'').trim())"
-                )
-            except Exception:
-                texts = []
-            for t in texts:
-                if t and t not in out:
-                    out.append(t)
-            if out:
-                break
-        return out
+    def _main_text(self) -> str:
+        """innerText of the conversation region (not the member roster)."""
+        js = """
+        () => {
+          const main = document.querySelector('main') || document.body;
+          return main ? main.innerText : '';
+        }"""
+        try:
+            return self.page.evaluate(js) or ""
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _lead_blocks(text: str) -> list[str]:
+        """Split a text snapshot into 'NEW LEAD ...' blocks."""
+        import re
+        parts = re.split(r"(?i)(?=NEW LEAD\b)", text)
+        return [p.strip() for p in parts if "new lead" in p.lower()]
 
     def fetch_space_messages(self, space_url: str) -> list[str]:
-        """Open the space, scroll through history, return message texts (oldest first)."""
+        """Open the space, scroll through history, return lead message blocks.
+
+        Reads the conversation text (which includes the lead messages) and
+        splits it into 'NEW LEAD' blocks, de-duplicated across scroll snapshots
+        (Google Chat virtualizes the list, so rows unmount as you scroll).
+        Also writes the full captured text to chat_raw.txt for tuning.
+        """
         if not space_url:
             raise ValueError("chat.space_url is empty — set it in config.json")
         try:
             self.page.goto(space_url, wait_until="domcontentloaded")
         except PWTimeout:
             pass
-        self.page.wait_for_timeout(4000)  # let Chat's app shell render
+        self.page.wait_for_timeout(5000)  # let Chat's app shell render
 
         scroller = self._find_scroller()
-        # Scroll UP to force older messages to load, collecting as we go so we
-        # don't lose virtualized rows that unmount.
-        collected: list[str] = []
+        seen: dict[str, str] = {}       # normalized-key -> block text (first seen)
+        snapshots: list[str] = []
         stable = 0
         for _ in range(self.cfg.max_scrolls):
-            for m in self._collect_messages():
-                if m not in collected:
-                    collected.append(m)
+            snap = self._main_text()
+            if snap:
+                snapshots.append(snap)
+            added = 0
+            for block in self._lead_blocks(snap):
+                key = " ".join(block.split())[:120].lower()
+                if key not in seen:
+                    seen[key] = block
+                    added += 1
             try:
                 if scroller is not None:
                     scroller.evaluate("el => el.scrollBy(0, -el.clientHeight)")
@@ -127,14 +140,18 @@ class ChatClient:
             except Exception:
                 self.page.mouse.wheel(0, -2500)
             self.page.wait_for_timeout(self.cfg.scroll_pause_ms)
-            new = [m for m in self._collect_messages() if m not in collected]
-            if not new:
-                stable += 1
-                if stable >= 5:      # nothing new after several scrolls -> at top
-                    break
-            else:
-                stable = 0
+            stable = stable + 1 if added == 0 else 0
+            if stable >= 6:             # no new leads after several scrolls -> done
+                break
 
-        # Google Chat renders oldest-at-top; collected roughly reverse of scroll.
-        # Preserve first-seen order but reverse so output reads oldest -> newest.
-        return list(reversed(collected))
+        # Save raw capture for diagnosis / selector tuning.
+        try:
+            from pathlib import Path
+            Path("chat_raw.txt").write_text(
+                "\n\n===== SNAPSHOT =====\n\n".join(snapshots[-3:]), encoding="utf-8"
+            )
+        except Exception:
+            pass
+
+        blocks = list(seen.values())
+        return list(reversed(blocks))   # oldest -> newest

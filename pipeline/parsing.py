@@ -155,15 +155,63 @@ _TIMESTAMP_RE = re.compile(
     r"|\d{1,2}/\d{1,2}/\d{2,4},?\s+\d{1,2}:\d{2}\s*(?:[APap]\.?[Mm]\.?)?(?:\s*[A-Za-z]{2,4})?",  # 07/20/2026 8:57 AM
 )
 _SOURCE_KEYWORDS = {
-    "ppl": "PPL",
-    "pay per lead": "PPL",
+    "property leads": "PPL",
     "propertyleads": "PPL",
-    "ppc": "PPC",
+    "pay per lead": "PPL",
+    "ppl": "PPL",
     "pay per click": "PPC",
+    "ppc": "PPC",
     "direct mail": "Direct Mail",
     "seo": "SEO",
     "referral": "Referral",
 }
+
+# Street-type words used to split "<street> <city>" when there's no comma
+# between them (e.g. "302 Seascape Resort Dr Aptos").
+_SUFFIX_SPLIT_RE = re.compile(
+    r"\b(?:St|Street|Ave|Avenue|Blvd|Boulevard|Rd|Road|Dr|Drive|Ln|Lane|Ct|Court|"
+    r"Way|Pl|Place|Ter|Terrace|Cir|Circle|Hwy|Highway|Pkwy|Parkway|Trl|Trail|Loop|Sq|Square)\b\.?",
+    re.I,
+)
+_LABEL_RE = {
+    # No leading \b: the Zapier header glues "...PROPERTY LEADSName:" together.
+    "seller_name": re.compile(r"Name\s*:\s*(.+)", re.I),
+    "seller_phone": re.compile(r"\bPhone\s*:\s*(.+)", re.I),
+    "seller_email": re.compile(r"\bEmail\s*:\s*(\S+@\S+)", re.I),
+    "source_raw": re.compile(r"\bLead Source\s*:\s*(.+)", re.I),
+    "address_raw": re.compile(r"\bProperty Address\s*:\s*(.+)", re.I),
+}
+
+
+def split_address(value: str) -> tuple[str, str, str]:
+    """'302 Seascape Resort Dr Aptos, 95003' -> (street, city, zip).
+
+    Splits city off after the street-type word; ZIP is the trailing 5 digits.
+    City is left blank (to be flagged, not guessed) if we can't isolate it.
+    """
+    v = " ".join(value.split()).strip()
+    zip_code = ""
+    left = v
+    if "," in v:
+        left, right = v.split(",", 1)
+        m = _ZIP_RE.search(right)
+        if m:
+            zip_code = m.group(1)
+    if not zip_code:
+        zips = _ZIP_RE.findall(v)
+        if zips:
+            zip_code = zips[-1]
+            left = re.sub(rf"\b{zip_code}\b.*$", "", left).strip(" ,")
+    left = left.strip(" ,")
+
+    matches = list(_SUFFIX_SPLIT_RE.finditer(left))
+    if matches:
+        end = matches[-1].end()
+        street = left[:end].strip(" ,")
+        city = left[end:].strip(" ,")
+    else:
+        street, city = left, ""
+    return street, city, zip_code
 _ALLOWED_SOURCES = {"PPL", "PPC", "Direct Mail", "SEO", "Referral", "Other", "Unknown"}
 
 
@@ -175,12 +223,52 @@ def _extract_source(text: str) -> str:
     return ""
 
 
+def _looks_labeled(text: str) -> bool:
+    return bool(_LABEL_RE["address_raw"].search(text) or _LABEL_RE["seller_name"].search(text))
+
+
+def parse_labeled_block(block: str) -> Lead:
+    """Parse the 'NEW LEAD - PROPERTY LEADS' labeled format (Zapier posts)."""
+    lead = Lead()
+    text = block
+
+    m = _LABEL_RE["seller_name"].search(text)
+    if m:
+        lead.seller_name = m.group(1).strip()
+    m = _LABEL_RE["seller_phone"].search(text)
+    if m:
+        digits = re.sub(r"\D", "", m.group(1))
+        if digits:
+            lead.seller_phone = digits
+    m = _LABEL_RE["seller_email"].search(text)
+    if m:
+        lead.seller_email = m.group(1).strip()
+    m = _LABEL_RE["source_raw"].search(text)
+    if m:
+        lead.source = _extract_source(m.group(1)) or ""
+    m = _LABEL_RE["address_raw"].search(text)
+    if m:
+        street, city, zip_code = split_address(m.group(1))
+        lead.property_address = street
+        lead.city = city
+        lead.zip_code = zip_code
+
+    # A timestamp may have been prepended by the Chat reader (sender/time line).
+    mt = _TIMESTAMP_RE.search(text)
+    if mt:
+        lead.google_chat_timestamp = mt.group(0).strip()
+    return lead
+
+
 def parse_text_block(block: str) -> Lead:
     """Best-effort parse of one free-text notification block into a Lead.
 
     Confidently-found fields are filled; anything missing is flagged for
     verification rather than guessed.
     """
+    if _looks_labeled(block):
+        return parse_labeled_block(block)
+
     lead = Lead()
     text = block.strip()
 
@@ -257,8 +345,14 @@ def parse_notifications(raw_text: str, fmt: str, source_timezone: str) -> list[L
                 continue
             leads.append(_lead_from_json(json.loads(line)))
     elif fmt == "auto_text":
-        blocks = re.split(r"\n\s*\n", raw_text.strip())
-        for block in blocks:
+        # If the "NEW LEAD" marker is present, split on it so each lead's whole
+        # block (including trailing action items) stays together. Otherwise fall
+        # back to blank-line separation.
+        if re.search(r"NEW LEAD", raw_text, re.I):
+            parts = re.split(r"(?i)(?=NEW LEAD\b)", raw_text)
+        else:
+            parts = re.split(r"\n\s*\n", raw_text.strip())
+        for block in parts:
             if block.strip():
                 leads.append(parse_text_block(block))
     else:

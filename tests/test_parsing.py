@@ -74,6 +74,35 @@ def test_jsonl_parse_and_finalize():
     assert "county" in lead.notes.lower()
 
 
+def test_labeled_zapier_format():
+    raw = (
+        "NEW LEAD - PROPERTY LEADSName: Ganesh Iyer\n"
+        "Phone: 2812218511\n"
+        "Email:  gaiyer777@yahoo.com\n"
+        "Lead Source: Property Leads\n"
+        "Property Address: 302 Seascape Resort Dr Aptos, 95003\n\n"
+        "ACTION NEEDED:\n1. Call this lead\n\n"
+        "NEW LEAD - PROPERTY LEADSName: William Santora\n"
+        "Phone: 5103013126\n"
+        "Lead Source: Property Leads\n"
+        "Property Address: 15510 Montreal St San Leandro, 94579\n"
+    )
+    leads = parse_notifications(raw, "auto_text", "America/Los_Angeles")
+    assert len(leads) == 2, f"expected 2 leads, got {len(leads)}"
+    a, b = leads
+    assert a.seller_name == "Ganesh Iyer" and a.seller_phone == "2812218511"
+    assert a.property_address == "302 Seascape Resort Dr" and a.city == "Aptos" and a.zip_code == "95003"
+    assert a.source == "PPL"
+    assert b.seller_name == "William Santora"
+    assert b.city == "San Leandro" and b.zip_code == "94579"   # multi-word city
+
+
+def test_split_address():
+    from pipeline.parsing import split_address
+    assert split_address("302 Seascape Resort Dr Aptos, 95003") == ("302 Seascape Resort Dr", "Aptos", "95003")
+    assert split_address("15510 Montreal St San Leandro, 94579") == ("15510 Montreal St", "San Leandro", "94579")
+
+
 def _run():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0
