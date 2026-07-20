@@ -18,6 +18,7 @@
     "contacts_url": "https://my.reiblackbook.com/contacts",
     "properties_inbox_url": "https://my.reiblackbook.com/properties/inbox",
     "nav_timeout_ms": 30000,
-    "slow_mo_ms": 0
+    "slow_mo_ms": 0,
+    "chromium_executable_path": ""
   }
 }

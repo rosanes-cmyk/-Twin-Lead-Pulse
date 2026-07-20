@@ -17,6 +17,9 @@ class ReiConfig:
     properties_inbox_url: str = "https://my.reiblackbook.com/properties/inbox"
     nav_timeout_ms: int = 30000
     slow_mo_ms: int = 0
+    # Optional: point at a pre-installed Chromium (leave empty to use the one
+    # Playwright manages via `playwright install chromium`).
+    chromium_executable_path: str = ""
 
 
 @dataclass

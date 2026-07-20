@@ -74,11 +74,14 @@ class ReiClient:
 
     def __enter__(self) -> "ReiClient":
         self._pw = sync_playwright().start()
-        self._ctx = self._pw.chromium.launch_persistent_context(
+        launch_kwargs = dict(
             user_data_dir=self.cfg.profile_dir,
             headless=self.cfg.headless,
             slow_mo=self.cfg.slow_mo_ms,
         )
+        if self.cfg.chromium_executable_path:
+            launch_kwargs["executable_path"] = self.cfg.chromium_executable_path
+        self._ctx = self._pw.chromium.launch_persistent_context(**launch_kwargs)
         self.page = self._ctx.pages[0] if self._ctx.pages else self._ctx.new_page()
         self.page.set_default_timeout(self.cfg.nav_timeout_ms)
         return self
