@@ -1,0 +1,23 @@
+{
+  "sheet_id": "1V_inTkuXkFDLNyDxxa5foM5Bxe2rUOfB6a_c1r_9tSw",
+  "worksheet_name": "Raw Lead Data",
+  "auth_mode": "oauth",
+  "google_credentials_path": "credentials.json",
+  "google_token_path": "token.json",
+  "leads_input_path": "leads.txt",
+  "leads_format": "auto_text",
+  "source_timezone": "America/Los_Angeles",
+  "entered_by": "Jonathan",
+  "original_source_location": "Google Chat",
+  "lead_id_prefix": "PPL-",
+  "rei": {
+    "enabled": true,
+    "profile_dir": ".rei_profile",
+    "headless": false,
+    "login_url": "https://my.reiblackbook.com/services/account/login",
+    "contacts_url": "https://my.reiblackbook.com/contacts",
+    "properties_inbox_url": "https://my.reiblackbook.com/properties/inbox",
+    "nav_timeout_ms": 30000,
+    "slow_mo_ms": 0
+  }
+}

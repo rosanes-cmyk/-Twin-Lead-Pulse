@@ -1,0 +1,11 @@
+# Core pipeline dependencies.
+# Parsing/timezone/dedupe use only the stdlib; these are for the sheet + browser steps.
+
+gspread>=6.0.0                 # Google Sheets read/write
+google-auth>=2.29.0
+google-auth-oauthlib>=1.2.0    # OAuth user flow for gspread.oauth()
+playwright>=1.44.0             # REI BlackBook browser automation (read-only)
+tzdata>=2024.1                 # zoneinfo database (needed on some minimal systems)
+
+# After installing, download the browser once:
+#   playwright install chromium

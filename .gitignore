@@ -1,0 +1,24 @@
+# Secrets & auth — NEVER commit these
+credentials.json
+token.json
+*.credentials.json
+service_account*.json
+
+# REI BlackBook browser profile (holds your logged-in session)
+.rei_profile/
+*_profile/
+
+# Real data & local config
+config.json
+leads.txt
+*.local.*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# OS
+.DS_Store
