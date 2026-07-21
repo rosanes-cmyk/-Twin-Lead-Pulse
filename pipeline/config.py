@@ -12,6 +12,9 @@ class ReiConfig:
     enabled: bool = True
     profile_dir: str = ".rei_profile"
     headless: bool = False
+    # Use real installed Chrome (bundled Chromium may lack network access on
+    # some machines). Set "" to use Playwright's bundled Chromium.
+    channel: str = "chrome"
     login_url: str = "https://my.reiblackbook.com/services/account/login"
     contacts_url: str = "https://my.reiblackbook.com/contacts"
     properties_inbox_url: str = "https://my.reiblackbook.com/properties/inbox"

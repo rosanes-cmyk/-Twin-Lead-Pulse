@@ -16,6 +16,7 @@
     "enabled": true,
     "profile_dir": ".rei_profile",
     "headless": false,
+    "channel": "chrome",
     "login_url": "https://my.reiblackbook.com/services/account/login",
     "contacts_url": "https://my.reiblackbook.com/contacts",
     "properties_inbox_url": "https://my.reiblackbook.com/properties/inbox",

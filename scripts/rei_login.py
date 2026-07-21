@@ -37,11 +37,15 @@ def main() -> int:
     print(f"Opening a visible browser using profile: {cfg.profile_dir}")
     print("Log in to REI BlackBook in the window, finish any 2FA, then return here.")
     with sync_playwright() as pw:
-        ctx = pw.chromium.launch_persistent_context(
-            user_data_dir=cfg.profile_dir,
-            headless=False,          # must be visible for a manual login
-            slow_mo=cfg.slow_mo_ms,
-        )
+        kwargs = dict(user_data_dir=cfg.profile_dir, headless=False, slow_mo=cfg.slow_mo_ms)
+        if getattr(cfg, "channel", ""):
+            kwargs["channel"] = cfg.channel
+        try:
+            ctx = pw.chromium.launch_persistent_context(**kwargs)
+        except Exception as e:
+            print(f"Could not launch Chrome channel '{cfg.channel}': {e}\nFalling back to bundled Chromium...")
+            kwargs.pop("channel", None)
+            ctx = pw.chromium.launch_persistent_context(**kwargs)
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.goto(cfg.login_url)
         input("\n>>> Press Enter here AFTER you have fully logged in... ")

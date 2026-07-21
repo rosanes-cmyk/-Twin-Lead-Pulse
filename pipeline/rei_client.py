@@ -81,7 +81,13 @@ class ReiClient:
         )
         if self.cfg.chromium_executable_path:
             launch_kwargs["executable_path"] = self.cfg.chromium_executable_path
-        self._ctx = self._pw.chromium.launch_persistent_context(**launch_kwargs)
+        elif getattr(self.cfg, "channel", ""):
+            launch_kwargs["channel"] = self.cfg.channel
+        try:
+            self._ctx = self._pw.chromium.launch_persistent_context(**launch_kwargs)
+        except Exception:
+            launch_kwargs.pop("channel", None)   # fall back to bundled Chromium
+            self._ctx = self._pw.chromium.launch_persistent_context(**launch_kwargs)
         self.page = self._ctx.pages[0] if self._ctx.pages else self._ctx.new_page()
         self.page.set_default_timeout(self.cfg.nav_timeout_ms)
         return self
