@@ -104,7 +104,14 @@ class ReiClient:
         except Exception:
             launch_kwargs.pop("channel", None)   # fall back to bundled Chromium
             self._ctx = self._pw.chromium.launch_persistent_context(**launch_kwargs)
-        self.page = self._ctx.pages[0] if self._ctx.pages else self._ctx.new_page()
+        # Use a FRESH tab; the restored first tab is often stuck loading.
+        self.page = self._ctx.new_page()
+        for p in list(self._ctx.pages):
+            if p is not self.page:
+                try:
+                    p.close()
+                except Exception:
+                    pass
         self.page.set_default_timeout(self.cfg.nav_timeout_ms)
         return self
 

@@ -53,7 +53,14 @@ def main() -> int:
             print(f"Could not launch Chrome channel '{cfg.channel}': {e}\nFalling back to bundled Chromium...")
             kwargs.pop("channel", None)
             ctx = pw.chromium.launch_persistent_context(**kwargs)
-        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        # Open a FRESH tab (the restored first tab is often stuck) and close the rest.
+        page = ctx.new_page()
+        for p in list(ctx.pages):
+            if p is not page:
+                try:
+                    p.close()
+                except Exception:
+                    pass
         page.goto(cfg.login_url)
         input("\n>>> Press Enter here AFTER you have fully logged in... ")
         ctx.close()
