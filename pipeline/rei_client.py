@@ -179,18 +179,26 @@ class ReiClient:
             box = self._first_visible(_SEARCH_INPUT_SELECTORS)
         if box is None:
             return None
-        full_count = len(self._numeric_contact_ids())   # unfiltered list size
+        # Let the list finish loading, then record the unfiltered size.
+        full_count = 0
+        for _ in range(8):
+            self.page.wait_for_timeout(400)
+            c = len(self._numeric_contact_ids())
+            if c and c == full_count:
+                break
+            full_count = c
         try:
             box.click()
             box.fill("")
             box.type(query, delay=40)
-            self.page.wait_for_timeout(2500)             # live client-side filter
         except Exception:
             return None
-        ids = self._numeric_contact_ids()
-        # A real search narrows to a handful; if nothing changed, it didn't match.
-        if ids and (full_count == 0 or len(ids) < full_count) and len(ids) <= 8:
-            return ids[0]
+        # Poll until the live filter narrows the list (up to ~7s).
+        for _ in range(14):
+            self.page.wait_for_timeout(500)
+            ids = self._numeric_contact_ids()
+            if ids and len(ids) <= 8 and (full_count == 0 or len(ids) < full_count):
+                return ids[0]
         return None
 
     def _read_contact(self, contact_id: str) -> ReiResult:
