@@ -134,35 +134,47 @@ class ReiClient:
                 continue
         return None
 
-    def _search_contacts(self, query: str) -> Optional[str]:
-        """Run one contacts search; return a contact id if a result links to one."""
-        if not query.strip():
-            return None
-        try:
-            self.page.goto(self.cfg.contacts_url, wait_until="domcontentloaded")
-        except Exception:
-            return None
-        box = self._first_visible(_SEARCH_INPUT_SELECTORS)
-        if box is None:
-            return None
-        try:
-            box.fill("")
-            box.type(query, delay=20)
-            box.press("Enter")
-            self.page.wait_for_timeout(1500)  # let results render
-        except Exception:
-            return None
-        # Read the first result that links to /contacts/<id>.
+    def _numeric_contact_ids(self) -> list[str]:
+        """Distinct numeric /contacts/<id> ids currently on the page (order kept)."""
         try:
             hrefs = self.page.eval_on_selector_all(
                 "a[href*='/contacts/']", "els => els.map(e => e.getAttribute('href'))"
             )
         except Exception:
             hrefs = []
+        ids: list[str] = []
         for href in hrefs or []:
             m = _CONTACT_ID_RE.search(href or "")
-            if m:
-                return m.group(1)
+            if m and m.group(1) not in ids:
+                ids.append(m.group(1))
+        return ids
+
+    def _search_contacts(self, query: str) -> Optional[str]:
+        """Type into REI's live 'Search By Name, Phone' box and return the
+        contact id ONLY if the list actually narrows to a small result set
+        (avoids returning the top of the unfiltered list as a false match)."""
+        if not query.strip():
+            return None
+        try:
+            self.page.goto(self.cfg.contacts_url, wait_until="domcontentloaded")
+            self.page.wait_for_timeout(1800)
+        except Exception:
+            return None
+        box = self._first_visible(_SEARCH_INPUT_SELECTORS)
+        if box is None:
+            return None
+        full_count = len(self._numeric_contact_ids())   # unfiltered list size
+        try:
+            box.click()
+            box.fill("")
+            box.type(query, delay=40)
+            self.page.wait_for_timeout(2500)             # live client-side filter
+        except Exception:
+            return None
+        ids = self._numeric_contact_ids()
+        # A real search narrows to a handful; if nothing changed, it didn't match.
+        if ids and (full_count == 0 or len(ids) < full_count) and len(ids) <= 8:
+            return ids[0]
         return None
 
     def _read_contact(self, contact_id: str) -> ReiResult:
@@ -249,13 +261,15 @@ class ReiClient:
         with a note, so one bad lead can't abort the whole batch.
         """
         try:
-            street_only = lead.property_address.split(",")[0].strip() if lead.property_address else ""
+            phone = lead.seller_phone or ""
+            phone10 = "".join(ch for ch in phone if ch.isdigit())[-10:]
+            # REI's box searches By Name, Phone — lead with those.
             attempts = [
-                lead.property_address,
-                street_only,
                 lead.seller_name,
-                lead.seller_phone,
+                phone,
+                phone10,
                 lead.seller_email,
+                lead.property_address,
             ]
             for query in attempts:
                 cid = self._search_contacts(query or "")
