@@ -47,6 +47,7 @@ def main(argv=None) -> int:
                     help="run REI lookups on parsed leads and print results; no sheet writes")
     ap.add_argument("--rei-dump", action="store_true",
                     help="open REI contacts page and print its inputs/links for selector tuning")
+    ap.add_argument("--rei-search", help="debug: type this query into REI search and report results")
     ap.add_argument("--profile", help="override the REI browser profile dir (e.g. .chat_profile)")
     args = ap.parse_args(argv)
 
@@ -56,6 +57,9 @@ def main(argv=None) -> int:
 
     if args.rei_dump:
         return _rei_dump(cfg)
+
+    if args.rei_search:
+        return _rei_search(cfg, args.rei_search)
 
     if args.from_chat or cfg.leads_source == "chat":
         raw = _read_from_chat(cfg)
@@ -178,6 +182,48 @@ def _rei_dump(cfg) -> int:
             from pathlib import Path
             Path("rei_contacts.html").write_text(rei.page.content(), encoding="utf-8")
             print("Full HTML saved to rei_contacts.html")
+        except Exception:
+            pass
+    return 0
+
+
+def _rei_search(cfg, query: str) -> int:
+    """Debug: type a query into REI's search and report what happens."""
+    from pipeline.rei_client import ReiClient, _SEARCH_INPUT_SELECTORS
+    with ReiClient(cfg.rei) as rei:
+        try:
+            rei.page.goto(cfg.rei.contacts_url, wait_until="domcontentloaded")
+            rei.page.wait_for_timeout(2500)
+        except Exception as e:
+            print(f"nav error: {e}")
+        print("URL:", rei.page.url)
+        for sel in _SEARCH_INPUT_SELECTORS:
+            try:
+                loc = rei.page.locator(sel).first
+                if loc.count() > 0:
+                    print(f"  search selector {sel!r}: found, visible={loc.is_visible()}")
+            except Exception:
+                pass
+        before = rei._numeric_contact_ids()
+        print("contacts before search:", len(before))
+        box = rei._first_visible(_SEARCH_INPUT_SELECTORS)
+        if box is None:
+            print("!! no visible search box found")
+        else:
+            try:
+                box.click()
+                box.fill("")
+                box.type(query, delay=40)
+                rei.page.wait_for_timeout(3000)
+                print(f"typed query: {query!r}")
+            except Exception as e:
+                print(f"type error: {e}")
+        after = rei._numeric_contact_ids()
+        print("contacts after search:", len(after), "->", after[:10])
+        try:
+            from pathlib import Path
+            Path("rei_search.html").write_text(rei.page.content(), encoding="utf-8")
+            print("saved rei_search.html")
         except Exception:
             pass
     return 0
