@@ -83,6 +83,13 @@ class ReiClient:
             launch_kwargs["executable_path"] = self.cfg.chromium_executable_path
         elif getattr(self.cfg, "channel", ""):
             launch_kwargs["channel"] = self.cfg.channel
+        args = list(getattr(self.cfg, "extra_args", []) or [])
+        if getattr(self.cfg, "proxy_auto_detect", False):
+            args.append("--proxy-auto-detect")
+        if args:
+            launch_kwargs["args"] = args
+        if getattr(self.cfg, "proxy_server", ""):
+            launch_kwargs["proxy"] = {"server": self.cfg.proxy_server}
         try:
             self._ctx = self._pw.chromium.launch_persistent_context(**launch_kwargs)
         except Exception:

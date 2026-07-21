@@ -23,6 +23,13 @@ class ReiConfig:
     # Optional: point at a pre-installed Chromium (leave empty to use the one
     # Playwright manages via `playwright install chromium`).
     chromium_executable_path: str = ""
+    # If the automated browser has no network but normal Chrome does, your
+    # network likely uses a proxy. Set true to auto-detect it (WPAD/PAC), or put
+    # an explicit "host:port" in proxy_server.
+    proxy_auto_detect: bool = False
+    proxy_server: str = ""
+    # Extra Chrome flags if you need them (advanced).
+    extra_args: list = field(default_factory=list)
 
 
 @dataclass
