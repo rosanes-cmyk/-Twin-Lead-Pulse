@@ -37,9 +37,16 @@ def main() -> int:
     print(f"Opening a visible browser using profile: {cfg.profile_dir}")
     print("Log in to REI BlackBook in the window, finish any 2FA, then return here.")
     with sync_playwright() as pw:
-        kwargs = dict(user_data_dir=cfg.profile_dir, headless=False, slow_mo=cfg.slow_mo_ms)
+        kwargs = dict(
+            user_data_dir=cfg.profile_dir, headless=False, slow_mo=cfg.slow_mo_ms,
+            args=["--no-first-run", "--no-default-browser-check",
+                  "--disable-session-crashed-bubble", "--hide-crash-restore-bubble",
+                  "--restore-last-session=false"],
+        )
         if getattr(cfg, "channel", ""):
             kwargs["channel"] = cfg.channel
+        if getattr(cfg, "proxy_auto_detect", False):
+            kwargs["args"].append("--proxy-auto-detect")
         try:
             ctx = pw.chromium.launch_persistent_context(**kwargs)
         except Exception as e:

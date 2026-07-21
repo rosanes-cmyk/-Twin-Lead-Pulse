@@ -50,6 +50,16 @@ _PHONE_SELECTORS = [
 ]
 _HISTORY_TAB_LABELS = ["Notes", "Activities", "Activity", "Chat", "Text", "Messages", "History"]
 
+# Prevent "restore previous session" tab spam and first-run prompts that make
+# a persistent-profile Chrome open many tabs at once and hang.
+_STABILITY_ARGS = [
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-session-crashed-bubble",
+    "--hide-crash-restore-bubble",
+    "--restore-last-session=false",
+]
+
 
 @dataclass
 class ReiResult:
@@ -83,11 +93,10 @@ class ReiClient:
             launch_kwargs["executable_path"] = self.cfg.chromium_executable_path
         elif getattr(self.cfg, "channel", ""):
             launch_kwargs["channel"] = self.cfg.channel
-        args = list(getattr(self.cfg, "extra_args", []) or [])
+        args = _STABILITY_ARGS + list(getattr(self.cfg, "extra_args", []) or [])
         if getattr(self.cfg, "proxy_auto_detect", False):
             args.append("--proxy-auto-detect")
-        if args:
-            launch_kwargs["args"] = args
+        launch_kwargs["args"] = args
         if getattr(self.cfg, "proxy_server", ""):
             launch_kwargs["proxy"] = {"server": self.cfg.proxy_server}
         try:
