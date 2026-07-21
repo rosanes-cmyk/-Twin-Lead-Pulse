@@ -48,6 +48,8 @@ def main(argv=None) -> int:
     ap.add_argument("--rei-dump", action="store_true",
                     help="open REI contacts page and print its inputs/links for selector tuning")
     ap.add_argument("--rei-search", help="debug: type this query into REI search and report results")
+    ap.add_argument("--enrich-sheet", action="store_true",
+                    help="backfill REI Match/Link/Tags/Status onto rows already in the sheet")
     ap.add_argument("--profile", help="override the REI browser profile dir (e.g. .chat_profile)")
     args = ap.parse_args(argv)
 
@@ -60,6 +62,9 @@ def main(argv=None) -> int:
 
     if args.rei_search:
         return _rei_search(cfg, args.rei_search)
+
+    if args.enrich_sheet:
+        return _enrich_sheet(cfg)
 
     if args.from_chat or cfg.leads_source == "chat":
         raw = _read_from_chat(cfg)
@@ -184,6 +189,57 @@ def _rei_dump(cfg) -> int:
             print("Full HTML saved to rei_contacts.html")
         except Exception:
             pass
+    return 0
+
+
+def _enrich_sheet(cfg) -> int:
+    """Backfill REI Match/Link/Tags/Status onto rows already in the sheet.
+
+    For each existing row, search REI by its phone/name and write the four REI
+    columns (AD-AG). Existing manual columns are never touched. Safe to re-run
+    (e.g. to refresh status).
+    """
+    from pipeline.sheets_client import open_worksheet, SheetWriter, _a1_index
+    from pipeline.rei_client import ReiClient
+    from pipeline.models import Lead
+
+    ws = open_worksheet(cfg)
+    writer = SheetWriter(ws)
+    writer.ensure_rei_headers()
+    values = ws.get_all_values()
+    hr = writer.find_header_row()
+
+    def cell(row, letter):
+        i = _a1_index(letter)
+        return (row[i] if i < len(row) else "").strip()
+
+    targets = []
+    for idx in range(hr, len(values)):      # rows after header (0-based -> row idx+1)
+        row = values[idx]
+        if cell(row, "C") or cell(row, "B") or cell(row, "E"):
+            targets.append((idx + 1, row))
+
+    if not targets:
+        print("No data rows found to enrich.")
+        return 0
+
+    print(f"Enriching {len(targets)} existing row(s) via REI (read-only)...")
+    updated = 0
+    with ReiClient(cfg.rei) as rei:
+        for rownum, row in targets:
+            lead = Lead(
+                seller_name=cell(row, "B"),
+                seller_phone=cell(row, "C"),
+                property_address=cell(row, "E"),
+            )
+            r = rei.enrich(lead)
+            ws.update(f"AD{rownum}:AG{rownum}",
+                      [[r.match, r.contact_link, r.tags, r.status]],
+                      value_input_option="USER_ENTERED")
+            updated += 1
+            print(f"  row {rownum}: {lead.seller_name or lead.property_address} -> "
+                  f"{r.match} {r.contact_link or ''} [{r.status or '-'}]")
+    print(f"\nDone. REI data written to {updated} row(s).")
     return 0
 
 
