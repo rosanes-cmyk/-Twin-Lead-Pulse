@@ -58,6 +58,7 @@ _STABILITY_ARGS = [
     "--disable-session-crashed-bubble",
     "--hide-crash-restore-bubble",
     "--restore-last-session=false",
+    "--window-size=1500,1000",
 ]
 
 
@@ -88,6 +89,9 @@ class ReiClient:
             user_data_dir=self.cfg.profile_dir,
             headless=self.cfg.headless,
             slow_mo=self.cfg.slow_mo_ms,
+            # Force a wide desktop viewport so REI shows the full layout with the
+            # search box visible (narrow windows collapse it into a mobile menu).
+            viewport={"width": 1500, "height": 950},
         )
         if self.cfg.chromium_executable_path:
             launch_kwargs["executable_path"] = self.cfg.chromium_executable_path
@@ -161,6 +165,18 @@ class ReiClient:
         except Exception:
             return None
         box = self._first_visible(_SEARCH_INPUT_SELECTORS)
+        if box is None:
+            # Search may be hidden behind a mobile menu toggle — try to reveal it.
+            for tsel in ["#mobile_menu_toggle", "[id*='menu_toggle']", "[aria-label*='menu' i]"]:
+                try:
+                    tog = self.page.locator(tsel).first
+                    if tog.count() > 0:
+                        tog.click(timeout=2000)
+                        self.page.wait_for_timeout(600)
+                        break
+                except Exception:
+                    continue
+            box = self._first_visible(_SEARCH_INPUT_SELECTORS)
         if box is None:
             return None
         full_count = len(self._numeric_contact_ids())   # unfiltered list size
