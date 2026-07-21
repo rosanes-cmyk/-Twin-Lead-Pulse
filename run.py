@@ -45,9 +45,14 @@ def main(argv=None) -> int:
     ap.add_argument("--dry-run", action="store_true", help="parse + print only; no sheet writes")
     ap.add_argument("--rei-test", action="store_true",
                     help="run REI lookups on parsed leads and print results; no sheet writes")
+    ap.add_argument("--rei-dump", action="store_true",
+                    help="open REI contacts page and print its inputs/links for selector tuning")
     args = ap.parse_args(argv)
 
     cfg = Config.load(args.config)
+
+    if args.rei_dump:
+        return _rei_dump(cfg)
 
     if args.from_chat or cfg.leads_source == "chat":
         raw = _read_from_chat(cfg)
@@ -141,6 +146,37 @@ def main(argv=None) -> int:
     print(f"\nDone. {written} lead(s) written to '{cfg.worksheet_name}', {skipped} skipped as duplicates.")
     needs = sum(1 for l in leads if l.verification_status not in ("Verified", ""))
     print(f"Needs review: {needs}")
+    return 0
+
+
+def _rei_dump(cfg) -> int:
+    """Print the REI contacts page's inputs and contact links for selector tuning."""
+    from pipeline.rei_client import ReiClient
+    with ReiClient(cfg.rei) as rei:
+        try:
+            rei.page.goto(cfg.rei.contacts_url, wait_until="domcontentloaded")
+            rei.page.wait_for_timeout(4000)
+        except Exception as e:
+            print(f"nav error: {e}")
+        inputs = rei.page.eval_on_selector_all(
+            "input,textarea",
+            "els => els.map(e => ({tag:e.tagName, type:e.type||'', name:e.name||'', "
+            "placeholder:e.placeholder||'', id:e.id||'', aria:e.getAttribute('aria-label')||''}))",
+        )
+        print("URL:", rei.page.url)
+        print("INPUT FIELDS:")
+        for i in inputs:
+            print("  ", i)
+        links = rei.page.eval_on_selector_all(
+            "a[href*='/contacts/']", "els => els.slice(0,8).map(e => e.getAttribute('href'))"
+        )
+        print("CONTACT LINKS (sample):", links)
+        try:
+            from pathlib import Path
+            Path("rei_contacts.html").write_text(rei.page.content(), encoding="utf-8")
+            print("Full HTML saved to rei_contacts.html")
+        except Exception:
+            pass
     return 0
 
 

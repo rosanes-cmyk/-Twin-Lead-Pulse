@@ -111,7 +111,7 @@ class ReiClient:
             return None
         try:
             self.page.goto(self.cfg.contacts_url, wait_until="domcontentloaded")
-        except PWTimeout:
+        except Exception:
             return None
         box = self._first_visible(_SEARCH_INPUT_SELECTORS)
         if box is None:
@@ -142,7 +142,7 @@ class ReiClient:
         try:
             self.page.goto(url, wait_until="domcontentloaded")
             self.page.wait_for_timeout(1200)
-        except PWTimeout:
+        except Exception:
             res.notes = "contact page load timed out"
             return res
 
@@ -214,33 +214,40 @@ class ReiClient:
 
     # --- public API ------------------------------------------------------
     def enrich(self, lead: Lead) -> ReiResult:
-        """Try the 6 searches in order; stop at first match, then read contact."""
-        street_only = lead.property_address.split(",")[0].strip() if lead.property_address else ""
-        attempts = [
-            lead.property_address,
-            street_only,
-            lead.seller_name,
-            lead.seller_phone,
-            lead.seller_email,
-        ]
-        for query in attempts:
-            cid = self._search_contacts(query or "")
+        """Try the 6 searches in order; stop at first match, then read contact.
+
+        Never raises — any browser/navigation error degrades to a safe result
+        with a note, so one bad lead can't abort the whole batch.
+        """
+        try:
+            street_only = lead.property_address.split(",")[0].strip() if lead.property_address else ""
+            attempts = [
+                lead.property_address,
+                street_only,
+                lead.seller_name,
+                lead.seller_phone,
+                lead.seller_email,
+            ]
+            for query in attempts:
+                cid = self._search_contacts(query or "")
+                if cid:
+                    return self._read_contact(cid)
+
+            # Step 6: property pipeline inbox by address -> linked contact.
+            cid = self._search_property_inbox(lead.property_address or street_only)
             if cid:
                 return self._read_contact(cid)
 
-        # Step 6: property pipeline inbox by address -> linked contact.
-        cid = self._search_property_inbox(lead.property_address or street_only)
-        if cid:
-            return self._read_contact(cid)
-
-        return ReiResult(match="No", notes="no REI contact matched (6 searches)")
+            return ReiResult(match="No", notes="no REI contact matched (6 searches)")
+        except Exception as e:
+            return ReiResult(match="No", notes=f"REI lookup error: {type(e).__name__}")
 
     def _search_property_inbox(self, query: str) -> Optional[str]:
         if not (query or "").strip():
             return None
         try:
             self.page.goto(self.cfg.properties_inbox_url, wait_until="domcontentloaded")
-        except PWTimeout:
+        except Exception:
             return None
         box = self._first_visible(_SEARCH_INPUT_SELECTORS)
         if box is None:
