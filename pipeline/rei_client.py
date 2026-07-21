@@ -279,12 +279,11 @@ class ReiClient:
         try:
             phone = lead.seller_phone or ""
             phone10 = "".join(ch for ch in phone if ch.isdigit())[-10:]
-            # REI's box searches By Name, Phone — lead with those.
+            # Phone is the most reliable key — search it first, then name.
             attempts = [
-                lead.seller_name,
-                phone,
                 phone10,
-                lead.seller_email,
+                phone,
+                lead.seller_name,
                 lead.property_address,
             ]
             for query in attempts:
