@@ -47,9 +47,12 @@ def main(argv=None) -> int:
                     help="run REI lookups on parsed leads and print results; no sheet writes")
     ap.add_argument("--rei-dump", action="store_true",
                     help="open REI contacts page and print its inputs/links for selector tuning")
+    ap.add_argument("--profile", help="override the REI browser profile dir (e.g. .chat_profile)")
     args = ap.parse_args(argv)
 
     cfg = Config.load(args.config)
+    if args.profile:
+        cfg.rei.profile_dir = args.profile
 
     if args.rei_dump:
         return _rei_dump(cfg)

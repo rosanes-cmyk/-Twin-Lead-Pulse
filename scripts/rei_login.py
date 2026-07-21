@@ -24,8 +24,11 @@ from pipeline.config import Config  # noqa: E402
 def main() -> int:
     ap = argparse.ArgumentParser(description="Seed REI BlackBook persistent login")
     ap.add_argument("--config", default="config.json")
+    ap.add_argument("--profile", help="override the browser profile dir (e.g. .chat_profile)")
     args = ap.parse_args()
     cfg = Config.load(args.config).rei
+    if args.profile:
+        cfg.profile_dir = args.profile
 
     try:
         from playwright.sync_api import sync_playwright
