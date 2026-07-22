@@ -53,6 +53,10 @@ def main(argv=None) -> int:
     ap.add_argument("--clear-leads", action="store_true",
                     help="clear ALL lead rows from Raw Lead Data (start fresh); asks to confirm")
     ap.add_argument("--yes", action="store_true", help="skip the confirmation prompt (for --clear-leads)")
+    ap.add_argument("--relabel-heatmap", action="store_true",
+                    help="relabel the Dashboard heatmap hour headers 0-23 as 12 AM..11 PM")
+    ap.add_argument("--revert", action="store_true", help="with --relabel-heatmap: restore 0-23")
+    ap.add_argument("--tab", default="Dashboard", help="worksheet tab for --relabel-heatmap")
     ap.add_argument("--profile", help="override the REI browser profile dir (e.g. .chat_profile)")
     args = ap.parse_args(argv)
 
@@ -71,6 +75,9 @@ def main(argv=None) -> int:
 
     if args.clear_leads:
         return _clear_leads(cfg, skip_confirm=args.yes)
+
+    if args.relabel_heatmap:
+        return _relabel_heatmap(cfg, tab=args.tab, revert=args.revert)
 
     if args.from_chat or cfg.leads_source == "chat":
         raw = _read_from_chat(cfg)
@@ -226,6 +233,45 @@ def _rei_dump(cfg) -> int:
             print("Full HTML saved to rei_contacts.html")
         except Exception:
             pass
+    return 0
+
+
+def _relabel_heatmap(cfg, tab: str = "Dashboard", revert: bool = False) -> int:
+    """Relabel the heatmap hour headers (0-23) as readable clock hours.
+
+    Finds the 'Day / Hr' header cell and rewrites the 24 cells to its right.
+    Reversible with --revert (restores numeric 0-23).
+    """
+    from pipeline.sheets_client import open_named_worksheet
+    from gspread.utils import rowcol_to_a1
+
+    ws = open_named_worksheet(cfg, tab)
+    values = ws.get_all_values()
+    target = None
+    for r, row in enumerate(values, start=1):
+        for c, val in enumerate(row, start=1):
+            if val.strip().lower().replace(" ", "") in ("day/hr", "day/hour"):
+                target = (r, c)
+                break
+        if target:
+            break
+    if not target:
+        print(f"Couldn't find the heatmap 'Day / Hr' header on tab '{tab}'.")
+        return 1
+
+    r, c = target
+    if revert:
+        labels = [str(h) for h in range(24)]
+        opt = "USER_ENTERED"     # restore numeric 0-23
+    else:
+        labels = [f"{(h % 12) or 12} {'AM' if h < 12 else 'PM'}" for h in range(24)]
+        opt = "RAW"              # keep as literal text, not parsed as times
+    rng = f"{rowcol_to_a1(r, c + 1)}:{rowcol_to_a1(r, c + 24)}"
+    ws.update(rng, [labels], value_input_option=opt)
+    print(f"Updated heatmap hour labels on '{tab}' ({'0-23' if revert else '12 AM..11 PM'}).")
+    if not revert:
+        print("IMPORTANT: check the heatmap still shows counts. If the numbers went\n"
+              "blank, the formulas key off the numeric header — run again with --revert.")
     return 0
 
 

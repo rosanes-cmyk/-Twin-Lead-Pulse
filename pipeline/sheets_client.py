@@ -57,17 +57,23 @@ def _col_letter(idx0: int) -> str:
     return letters
 
 
-def open_worksheet(cfg):
+def _authorize(cfg):
     if gspread is None:
         raise RuntimeError("gspread not installed. Run: pip install -r requirements.txt")
     if cfg.auth_mode == "service_account":
-        gc = gspread.service_account(filename=cfg.google_credentials_path)
-    else:
-        gc = gspread.oauth(
-            credentials_filename=cfg.google_credentials_path,
-            authorized_user_filename=cfg.google_token_path,
-        )
-    return gc.open_by_key(cfg.sheet_id).worksheet(cfg.worksheet_name)
+        return gspread.service_account(filename=cfg.google_credentials_path)
+    return gspread.oauth(
+        credentials_filename=cfg.google_credentials_path,
+        authorized_user_filename=cfg.google_token_path,
+    )
+
+
+def open_worksheet(cfg):
+    return _authorize(cfg).open_by_key(cfg.sheet_id).worksheet(cfg.worksheet_name)
+
+
+def open_named_worksheet(cfg, name: str):
+    return _authorize(cfg).open_by_key(cfg.sheet_id).worksheet(name)
 
 
 class SheetWriter:
