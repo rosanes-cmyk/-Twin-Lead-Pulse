@@ -140,40 +140,50 @@ class ChatClient:
             pass
         self.page.wait_for_timeout(5000)  # let Chat's app shell render
 
-        merged: dict[str, str] = {}     # dedup-key -> enriched block
         snapshots: list[str] = []
+        seen_keys: set[str] = set()
         stable = 0
         stable_limit = max(12, getattr(self.cfg, "stable_rounds", 12))
         for _ in range(self.cfg.max_scrolls):
             snap = self._main_text()
-            if snap:
+            if snap and (not snapshots or snap != snapshots[-1]):
                 snapshots.append(snap)
+            # Track new leads only to decide when we've reached the top.
             added = 0
             for block in leads_from_conversation(snap, now):
-                key = self._dedup_key(block)
-                has_ts = "Google Chat Timestamp:" in block
-                if key not in merged:
-                    merged[key] = block
+                k = self._dedup_key(block)
+                if k not in seen_keys:
+                    seen_keys.add(k)
                     added += 1
-                elif has_ts and "Google Chat Timestamp:" not in merged[key]:
-                    merged[key] = block          # upgrade to the version that has a timestamp
             self._scroll_up_all()                       # claw toward the top
             self.page.wait_for_timeout(self.cfg.scroll_pause_ms)
-            # Stop only after many quiet rounds, so slow lazy-loads aren't missed.
             stable = stable + 1 if added == 0 else 0
             if stable >= stable_limit:
                 break
+
+        # Resolve the WHOLE history as one ordered stream (oldest snapshot first)
+        # so a day-divider's date carries forward to every message under it —
+        # even when the divider scrolled off-screen in a given snapshot.
+        combined = "\n".join(reversed(snapshots))
+        merged: dict[str, str] = {}
+        for block in leads_from_conversation(combined, now):
+            key = self._dedup_key(block)
+            has_ts = "Google Chat Timestamp:" in block
+            if key not in merged:
+                merged[key] = block
+            elif has_ts and "Google Chat Timestamp:" not in merged[key]:
+                merged[key] = block
         print(f"  (scanned to top; found {len(merged)} lead message(s))")
 
         try:
             from pathlib import Path
             Path("chat_raw.txt").write_text(
-                "\n\n===== SNAPSHOT =====\n\n".join(snapshots[-3:]), encoding="utf-8"
+                "\n\n===== SNAPSHOT (oldest-captured last) =====\n\n".join(snapshots[-4:]),
+                encoding="utf-8",
             )
         except Exception:
             pass
 
-        # Sort oldest -> newest by the resolved timestamp embedded in each block.
         return sorted(merged.values(), key=self._sort_key)
 
     @staticmethod
