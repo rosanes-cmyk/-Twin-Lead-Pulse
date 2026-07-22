@@ -31,7 +31,8 @@
     "space_url": "https://chat.google.com/app/chat/AAQAwIJlGQM",
     "nav_timeout_ms": 60000,
     "max_scrolls": 300,
-    "scroll_pause_ms": 400,
+    "scroll_pause_ms": 700,
+    "stable_rounds": 12,
     "slow_mo_ms": 0
   }
 }

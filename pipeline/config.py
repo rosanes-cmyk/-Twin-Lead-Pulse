@@ -43,8 +43,9 @@ class ChatConfig:
     channel: str = "chrome"
     space_url: str = ""                          # e.g. https://chat.google.com/app/chat/<SPACE_ID>
     nav_timeout_ms: int = 60000
-    max_scrolls: int = 300                        # how hard to scroll to load full history
-    scroll_pause_ms: int = 400
+    max_scrolls: int = 400                        # how hard to scroll to load full history
+    scroll_pause_ms: int = 700                    # give lazy-loaded older messages time to render
+    stable_rounds: int = 12                       # stop only after this many scrolls with nothing new
     slow_mo_ms: int = 0
 
 

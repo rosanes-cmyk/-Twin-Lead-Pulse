@@ -83,6 +83,26 @@ class ChatClient:
                 continue
         return None
 
+    def _scroll_up_all(self) -> None:
+        """Jump every scrollable panel to the top so Chat lazy-loads older
+        messages, then nudge with the wheel and Home key."""
+        js = """
+        () => {
+          const nodes = Array.from(document.querySelectorAll('*'))
+            .filter(e => e.scrollHeight > e.clientHeight + 80);
+          for (const e of nodes) { e.scrollTop = 0; }
+          if (document.scrollingElement) document.scrollingElement.scrollTop = 0;
+        }"""
+        try:
+            self.page.evaluate(js)
+        except Exception:
+            pass
+        try:
+            self.page.mouse.wheel(0, -8000)
+            self.page.keyboard.press("Home")
+        except Exception:
+            pass
+
     def _main_text(self) -> str:
         """innerText of the conversation region (not the member roster)."""
         js = """
@@ -120,10 +140,10 @@ class ChatClient:
             pass
         self.page.wait_for_timeout(5000)  # let Chat's app shell render
 
-        scroller = self._find_scroller()
         merged: dict[str, str] = {}     # dedup-key -> enriched block
         snapshots: list[str] = []
         stable = 0
+        stable_limit = max(12, getattr(self.cfg, "stable_rounds", 12))
         for _ in range(self.cfg.max_scrolls):
             snap = self._main_text()
             if snap:
@@ -134,17 +154,13 @@ class ChatClient:
                 if key not in merged:
                     merged[key] = block
                     added += 1
-            try:
-                if scroller is not None:
-                    scroller.evaluate("el => el.scrollBy(0, -el.clientHeight)")
-                else:
-                    self.page.mouse.wheel(0, -2500)
-            except Exception:
-                self.page.mouse.wheel(0, -2500)
+            self._scroll_up_all()                       # claw toward the top
             self.page.wait_for_timeout(self.cfg.scroll_pause_ms)
+            # Stop only after many quiet rounds, so slow lazy-loads aren't missed.
             stable = stable + 1 if added == 0 else 0
-            if stable >= 6:             # no new leads after several scrolls -> done
+            if stable >= stable_limit:
                 break
+        print(f"  (scanned to top; found {len(merged)} lead message(s))")
 
         try:
             from pathlib import Path
