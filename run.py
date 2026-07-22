@@ -50,6 +50,8 @@ def main(argv=None) -> int:
     ap.add_argument("--rei-search", help="debug: type this query into REI search and report results")
     ap.add_argument("--enrich-sheet", action="store_true",
                     help="backfill REI Match/Link/Tags/Status onto rows already in the sheet")
+    ap.add_argument("--clear-leads", action="store_true",
+                    help="clear ALL lead rows from Raw Lead Data (start fresh); asks to confirm")
     ap.add_argument("--profile", help="override the REI browser profile dir (e.g. .chat_profile)")
     args = ap.parse_args(argv)
 
@@ -65,6 +67,9 @@ def main(argv=None) -> int:
 
     if args.enrich_sheet:
         return _enrich_sheet(cfg)
+
+    if args.clear_leads:
+        return _clear_leads(cfg)
 
     if args.from_chat or cfg.leads_source == "chat":
         raw = _read_from_chat(cfg)
@@ -189,6 +194,35 @@ def _rei_dump(cfg) -> int:
             print("Full HTML saved to rei_contacts.html")
         except Exception:
             pass
+    return 0
+
+
+def _clear_leads(cfg) -> int:
+    """Clear ALL lead rows from Raw Lead Data so you can start fresh.
+
+    Clears only the manual + REI columns (A-J, S-Z, AD-AG); the formula columns
+    (K-R, AA-AC) keep their formulas. Asks for confirmation first.
+    """
+    from pipeline.sheets_client import open_worksheet, SheetWriter
+
+    ws = open_worksheet(cfg)
+    writer = SheetWriter(ws)
+    hr = writer.find_header_row()
+    values = ws.get_all_values()
+    last = len(values)
+    if last <= hr:
+        print("No lead rows to clear.")
+        return 0
+
+    print(f"This will CLEAR all lead data in rows {hr + 1}-{last} of "
+          f"'{cfg.worksheet_name}' (dashboard formulas are kept).")
+    if input("Type YES to confirm: ").strip() != "YES":
+        print("Cancelled — nothing changed.")
+        return 0
+
+    ranges = [f"A{hr + 1}:J{last}", f"S{hr + 1}:Z{last}", f"AD{hr + 1}:AG{last}"]
+    ws.batch_clear(ranges)
+    print(f"Cleared {last - hr} row(s). Now run  --from-chat  to load current leads.")
     return 0
 
 
