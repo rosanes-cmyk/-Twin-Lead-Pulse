@@ -151,9 +151,12 @@ class ChatClient:
             added = 0
             for block in leads_from_conversation(snap, now):
                 key = self._dedup_key(block)
+                has_ts = "Google Chat Timestamp:" in block
                 if key not in merged:
                     merged[key] = block
                     added += 1
+                elif has_ts and "Google Chat Timestamp:" not in merged[key]:
+                    merged[key] = block          # upgrade to the version that has a timestamp
             self._scroll_up_all()                       # claw toward the top
             self.page.wait_for_timeout(self.cfg.scroll_pause_ms)
             # Stop only after many quiet rounds, so slow lazy-loads aren't missed.

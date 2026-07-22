@@ -25,8 +25,12 @@ _MONTHS = {m: i for i, m in enumerate(
 _TIME_TOKEN_RE = re.compile(
     r"^(?:(Today|Yesterday|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+)?(\d{1,2}):(\d{2})\s*([AaPp][Mm])$"
 )
-# Day dividers: "Today", "Yesterday", or "Friday, Jul 17".
-_DIVIDER_FULL_RE = re.compile(r"^[A-Z][a-z]+day,\s+([A-Z][a-z]{2})\s+(\d{1,2})$")
+# Day dividers, several shapes:
+#   "Friday, Jul 17"      -> weekday, mon dd
+#   "Jul 16" / "July 16"  -> mon dd (current year assumed)
+#   "Jul 16, 2026"        -> mon dd, yyyy
+_DIVIDER_FULL_RE = re.compile(r"^[A-Z][a-z]+day,\s+([A-Z][a-z]{2,8})\s+(\d{1,2})(?:,\s*(\d{4}))?$")
+_DIVIDER_MONTH_RE = re.compile(r"^([A-Z][a-z]{2,8})\s+(\d{1,2})(?:,\s*(\d{4}))?$")
 _LEAD_MARKER = "NEW LEAD"
 _END_MARKERS = ("ACTION NEEDED", "\U0001F525")   # "ACTION NEEDED" or 🔥
 
@@ -36,9 +40,9 @@ def _most_recent_weekday(now: date, wd: int) -> date:
     return now - timedelta(days=delta)
 
 
-def _resolve_date(day_word: str | None, ctx_date: date, now: date) -> date:
+def _resolve_date(day_word: str | None, ctx_date, now: date):
     if not day_word:
-        return ctx_date or now
+        return ctx_date            # may be None -> caller won't guess a date
     w = day_word.lower()
     if w == "today":
         return now
@@ -50,18 +54,25 @@ def _resolve_date(day_word: str | None, ctx_date: date, now: date) -> date:
 
 
 def _resolve_divider(line: str, now: date) -> date | None:
-    low = line.strip().lower()
+    s = line.strip()
+    low = s.lower()
     if low == "today":
         return now
     if low == "yesterday":
         return now - timedelta(days=1)
-    m = _DIVIDER_FULL_RE.match(line.strip())
-    if m and m.group(1).lower() in _MONTHS:
-        month, day = _MONTHS[m.group(1).lower()], int(m.group(2))
-        d = date(now.year, month, day)
-        if d > now:                     # month/day in the future -> last year
-            d = date(now.year - 1, month, day)
-        return d
+    m = _DIVIDER_FULL_RE.match(s) or _DIVIDER_MONTH_RE.match(s)
+    if m:
+        mon = m.group(1)[:3].lower()
+        if mon in _MONTHS:
+            month, day = _MONTHS[mon], int(m.group(2))
+            year = int(m.group(3)) if m.group(3) else now.year
+            try:
+                d = date(year, month, day)
+            except ValueError:
+                return None
+            if not m.group(3) and d > now:      # no explicit year & in the future -> last year
+                d = date(now.year - 1, month, day)
+            return d
     return None
 
 
@@ -96,7 +107,7 @@ def leads_from_conversation(text: str, now: datetime) -> list[str]:
             day_word, hh, mm, ap = tok.groups()
             hour = int(hh) % 12 + (12 if ap.lower() == "pm" else 0)
             d = _resolve_date(day_word, ctx_date, now_date)
-            pending_iso = _iso(d, hour, int(mm))
+            pending_iso = _iso(d, hour, int(mm)) if d is not None else None
             i += 1
             continue
 
