@@ -84,21 +84,33 @@ def main(argv=None) -> int:
     leads = parse_notifications(raw, cfg.leads_format, cfg.source_timezone)
     print(f"Parsed {len(leads)} lead notification(s)")
 
-    # Fill county from ZIP (deterministic lookup) when it's not in the message.
+    # Drop empty/junk leads (no address, name, or phone) so blank rows aren't written.
+    before = len(leads)
+    leads = [l for l in leads if (l.property_address or l.seller_name or l.seller_phone)]
+    if before != len(leads):
+        print(f"Dropped {before - len(leads)} empty lead fragment(s)")
+
+    # Fill City and County from ZIP (deterministic lookup) when missing.
     if getattr(cfg, "fill_county_from_zip", True):
-        from pipeline.geo import zip_to_county
-        filled = 0
+        from pipeline.geo import zip_to_county, zip_to_city
+        fc = fct = 0
         for lead in leads:
-            if not lead.county and lead.zip_code:
+            if not lead.zip_code:
+                continue
+            if not lead.county:
                 c = zip_to_county(lead.zip_code)
                 if c:
                     lead.county = c
-                    lead.notes = " | ".join(
-                        p for p in lead.notes.split(" | ") if "county" not in p.lower()
-                    )
-                    filled += 1
-        if filled:
-            print(f"Filled county from ZIP for {filled} lead(s)")
+                    lead.notes = " | ".join(p for p in lead.notes.split(" | ") if "county" not in p.lower())
+                    fc += 1
+            if not lead.city:
+                ct = zip_to_city(lead.zip_code)
+                if ct:
+                    lead.city = ct
+                    lead.notes = " | ".join(p for p in lead.notes.split(" | ") if "city" not in p.lower())
+                    fct += 1
+        if fc or fct:
+            print(f"Filled from ZIP — county: {fc}, city: {fct}")
 
     today = _today_pacific()
     for lead in leads:

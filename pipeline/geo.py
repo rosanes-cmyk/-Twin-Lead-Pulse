@@ -11,8 +11,8 @@ _nomi = None
 _failed = False
 
 
-def zip_to_county(zip_code: str) -> str:
-    """'95003' -> 'Santa Cruz County' (matches the sheet's convention). '' if unknown."""
+def _field(zip_code: str, attr: str) -> str:
+    """Return a string field (county_name/place_name) for a ZIP, or ''."""
     global _nomi, _failed
     z = "".join(c for c in (zip_code or "") if c.isdigit())[:5]
     if len(z) != 5 or _failed:
@@ -21,12 +21,22 @@ def zip_to_county(zip_code: str) -> str:
         if _nomi is None:
             import pgeocode
             _nomi = pgeocode.Nominatim("us")
-        rec = _nomi.query_postal_code(z)
-        county = getattr(rec, "county_name", None)
-        # pandas returns NaN (a float) for unknown fields.
-        if isinstance(county, str) and county.strip() and county.strip().lower() != "nan":
-            c = county.strip()
-            return c if c.lower().endswith("county") else f"{c} County"
+        val = getattr(_nomi.query_postal_code(z), attr, None)
+        if isinstance(val, str) and val.strip() and val.strip().lower() != "nan":
+            return val.strip()
     except Exception:
         _failed = True   # pgeocode missing or data unreachable -> stop trying
     return ""
+
+
+def zip_to_county(zip_code: str) -> str:
+    """'95003' -> 'Santa Cruz County' (matches the sheet's convention). '' if unknown."""
+    c = _field(zip_code, "county_name")
+    if not c:
+        return ""
+    return c if c.lower().endswith("county") else f"{c} County"
+
+
+def zip_to_city(zip_code: str) -> str:
+    """'95003' -> 'Aptos' (postal place name). '' if unknown."""
+    return _field(zip_code, "place_name")
