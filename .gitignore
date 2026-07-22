@@ -27,3 +27,4 @@ venv/
 .DS_Store
 rei_contacts.html
 rei_search.html
+run.log
