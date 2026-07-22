@@ -201,6 +201,18 @@ class ReiClient:
                 return ids[0]
         return None
 
+    def reachable(self) -> bool:
+        """Quick preflight: is REI actually loading and logged in on this machine?
+        Prevents a long hang when REI is network-blocked or logged out."""
+        try:
+            self.page.goto(self.cfg.contacts_url, wait_until="domcontentloaded", timeout=20000)
+            self.page.wait_for_timeout(2500)
+        except Exception:
+            return False
+        if "/login" in (self.page.url or ""):
+            return False
+        return len(self._numeric_contact_ids()) > 0
+
     def _read_contact(self, contact_id: str) -> ReiResult:
         url = f"https://my.reiblackbook.com/contacts/{contact_id}"
         res = ReiResult(match="Yes", contact_link=url)

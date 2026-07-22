@@ -133,9 +133,15 @@ def main(argv=None) -> int:
     # --- REI enrichment (optional) — only for leads we'll actually write ---
     if cfg.rei.enabled and not args.no_rei and to_write:
         from pipeline.rei_client import ReiClient
-        print(f"Enriching {len(to_write)} lead(s) via REI BlackBook (read-only)...")
         with ReiClient(cfg.rei) as rei:
-            for lead in to_write:
+            if not rei.reachable():
+                print("REI is not reachable / not logged in on this machine — SKIPPING REI.\n"
+                      "  (Run  --enrich-sheet  on a PC where REI loads to fill REI columns.)")
+                to_enrich = []
+            else:
+                to_enrich = to_write
+                print(f"Enriching {len(to_enrich)} lead(s) via REI BlackBook (read-only)...")
+            for lead in to_enrich:
                 result = rei.enrich(lead)
                 lead.rei_match = result.match
                 lead.rei_contact_link = result.contact_link
@@ -269,6 +275,10 @@ def _enrich_sheet(cfg) -> int:
         buf_start = None
 
     with ReiClient(cfg.rei) as rei:
+        if not rei.reachable():
+            print("REI is not reachable / not logged in on this machine — nothing written.\n"
+                  "  Run this on a PC where REI loads (log in with scripts\\rei_login.py first).")
+            return 0
         for rownum, row in targets:
             lead = Lead(
                 seller_name=cell(row, "B"),
