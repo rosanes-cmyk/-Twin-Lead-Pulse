@@ -117,12 +117,14 @@ def main(argv=None) -> int:
     writer.ensure_rei_headers()
     index: DuplicateIndex = writer.build_index()
 
-    for i, lead in enumerate(leads, start=1):
+    seq = writer.max_lead_seq(cfg.lead_id_prefix)   # continue after highest existing ID
+    for lead in leads:
         lead.duplicate = index.classify(lead)
         if lead.duplicate in ("Yes", "Possible"):
             lead.verification_status = "Duplicate Review"
         if not lead.lead_id:
-            lead.lead_id = f"{cfg.lead_id_prefix}{i:04d}"
+            seq += 1
+            lead.lead_id = f"{cfg.lead_id_prefix}{seq:04d}"
         index.add(address=lead.property_address, phone=lead.seller_phone, email=lead.seller_email)
 
     skip_dupes = cfg.skip_confirmed_duplicates and not args.write_duplicates

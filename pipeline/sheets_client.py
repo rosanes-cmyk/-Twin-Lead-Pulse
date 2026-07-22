@@ -107,6 +107,19 @@ class SheetWriter:
                 idx.add(address=cell("E"), phone=cell("C"), email=cell("D"))
         return idx
 
+    def max_lead_seq(self, prefix: str) -> int:
+        """Highest numeric suffix among existing Lead IDs with `prefix` (0 if none)."""
+        import re
+        hr = self.find_header_row()
+        best = 0
+        pat = re.compile(rf"^{re.escape(prefix)}(\d+)$")
+        for row in self._values[hr:]:
+            a = (row[0] if row else "").strip()
+            m = pat.match(a)
+            if m:
+                best = max(best, int(m.group(1)))
+        return best
+
     def next_row(self) -> int:
         hr = self.find_header_row()
         last_data = hr
