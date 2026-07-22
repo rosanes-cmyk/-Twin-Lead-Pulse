@@ -1,134 +1,163 @@
-# Twin Lead Pulse — Lead Ingestion & REI BlackBook Enrichment
+# Twin Lead Pulse — Property Lead Pipeline
 
-A small pipeline for **Equity Track Inc. / Twin Home Buyer** that turns incoming
-Property Lead notifications into clean rows in the existing Google Sheet
-dashboard, and enriches each lead by looking it up in REI BlackBook.
+Automates the "Incoming Property Leads" workflow for **Equity Track Inc. / Twin
+Home Buyer**:
 
 ```
-notifications ──▶ parse (Pacific time, never-guess) ──▶ dedupe ──▶ REI lookup (read-only) ──▶ Raw Lead Data tab
+Google Chat space ─▶ parse each lead ─▶ dedupe ─▶ write to the dashboard Sheet ─▶ enrich from REI BlackBook
 ```
+
+For every `NEW LEAD - PROPERTY LEADS` message posted in the Chat space, it writes
+one clean row into the **Raw Lead Data** tab (Pacific-time date/time, deduped,
+never guessing missing fields) and fills in the REI **contact link, tags, and
+status** by looking the lead up in REI BlackBook by phone.
 
 ---
 
-## ⚠️ Read this first: where this runs
+## What you run day to day
 
-**Run this on your own computer, not inside a Claude Code web session.**
-The REI step opens a *visible* browser you log into by hand and keeps a saved
-login profile between runs. A cloud/web session is headless and temporary — no
-screen to log in on, and the profile is wiped when it ends. So: clone this repo
-locally, install, and run it on your machine (Mac/Windows/Linux with a display).
+From inside the `twinleadpulse` folder:
 
-**Security:** your REI login lives only in the local browser profile
-(`.rei_profile/`, git-ignored). It is never written to the sheet, the code, or
-any log. Never paste passwords into chat or commit them.
-
----
-
-## What each lead row gets
-
-Written into the `Raw Lead Data` tab — **manual columns only**; the sheet's
-formula columns (`K–R` day/hour/week/month/year and `_DupFlag/_IssueFlag/_IssueText`)
-are never touched. The four REI fields are **appended as new columns** so the
-dashboard keeps working:
-
-| Written by the script | Column(s) |
+| Goal | Command |
 |---|---|
-| Lead ID, Seller Name/Phone/Email, Address, City, County, ZIP | A–H |
-| Date Received, Time Received (real date/time, **Pacific**) | I, J |
-| Source, Google Chat Timestamp, Duplicate?, Verification Status, Original Source Location, Notes, Date Entered, Entered By | S–Z |
-| **REI Match?, REI Contact Link, REI Tags, REI Status** | AD–AG (appended) |
-| *(day of week, hour bucket, month, year, dup/issue flags)* | *left to the sheet's own formulas* |
+| Pull new leads from Chat into the Sheet (with REI enrichment) | `python run.py --config config.json --from-chat` |
+| Backfill / refresh REI link+tags+status on rows already in the Sheet | `python run.py --config config.json --enrich-sheet` |
+| Preview only, write nothing | add `--dry-run` |
+| Skip the REI step | add `--no-rei` |
 
-Rules enforced in code: original notification timestamp only; convert to Pacific
-(method noted in Notes); **never guess** — a missing field is left blank and
-flagged `Needs Verification: <field>`; duplicates are **flagged, never merged**.
+New leads that are already in the Sheet are skipped automatically (matched by
+address, phone, or email), so you can run it as often as you like.
 
 ---
 
-## Setup (once)
+## ⚠️ Network requirement (read this)
 
-### 1. Install
-```bash
-git clone <this repo> && cd -Twin-Lead-Pulse
-python3 -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-playwright install chromium
-```
+The automated browser must be able to load **both** `chat.google.com` **and**
+`my.reiblackbook.com`. Some office networks / endpoint-security software block
+*automated* browsers from reaching REI (even though your normal Chrome works).
 
-### 2. Google Sheets access (one-time Google authorization)
-The script writes to the Sheet via the Google Sheets API, so it needs credentials:
+**If REI pages won't load** (Chat works but REI hangs):
+- Run on a network that doesn't block it — a **phone hotspot** is the quickest test, or
+- Have IT **whitelist `my.reiblackbook.com`** for the automation on the office network.
 
-1. In [Google Cloud Console](https://console.cloud.google.com/) create (or pick) a
-   project and **enable the Google Sheets API**.
-2. **OAuth mode** (default): create an **OAuth client ID → Desktop app**, download
-   it as `credentials.json` into this folder. On first run a browser opens once to
-   approve; the token is saved to `token.json`.
-   **Service-account mode** (alternative): create a service account, download its
-   JSON as `credentials.json`, set `"auth_mode": "service_account"` in config, and
-   **share the Sheet with the service account's email** (Editor).
-
-### 3. Configure
-```bash
-cp config.example.json config.json
-```
-Edit `config.json` — `sheet_id` is already set to the current dashboard
-(`1V_inTkuXkFDLNyDxxa5foM5Bxe2rUOfB6a_c1r_9tSw`); adjust `entered_by`,
-`leads_format`, etc. as needed.
-
-### 4. REI BlackBook login (one-time, visible browser)
-```bash
-python scripts/rei_login.py --config config.json
-```
-Log in (and finish any 2FA) in the window that opens, then press Enter in the
-terminal. Your session is saved to `.rei_profile/` and reused every run.
+Chat and the Sheet worked on the office network in testing; REI needed an
+unrestricted network. Everything else (dates, dedup, Sheet writes) is unaffected.
 
 ---
 
-## Providing the leads
+## One-time setup (per computer)
 
-Put the notifications in `leads.txt` (path set in config). Two formats:
-
-- **`auto_text`** (default): notifications separated by blank lines; fields are
-  extracted heuristically. See `leads.example.txt`. Tune the regexes in
-  `pipeline/parsing.py` to match your real Chat notification wording.
-- **`jsonl`** (most reliable): one JSON object per line, keys mapping to fields,
-  e.g. `{"Property Address":"...","City":"...","ZIP":"...","Source":"PPL","Google Chat Timestamp":"2026-07-19 18:13 PST"}`
+1. **Python** — install from [python.org](https://www.python.org/downloads/); on the
+   first installer screen check **"Add python.exe to PATH"**. Reopen the terminal.
+2. **Get the code:**
+   ```
+   cd %USERPROFILE%
+   git clone https://github.com/rosanes-cmyk/-twin-lead-pulse.git twinleadpulse
+   cd twinleadpulse
+   ```
+3. **Dependencies:**
+   ```
+   python -m pip install -r requirements.txt
+   python -m playwright install chromium
+   ```
+4. **Config:**
+   ```
+   copy config.example.json config.json
+   ```
+   Defaults are correct (service-account auth, real Chrome). `sheet_id` and the
+   Chat `space_url` are already filled in.
+5. **Google key** — put your service-account **`credentials.json`** in this folder,
+   and share the Sheet with the service account's email as **Editor**
+   (see *Google setup* below). Needed for any command that writes to the Sheet.
+6. **Log in once** (visible browser windows; sessions are saved and reused):
+   ```
+   python scripts\chat_login.py --config config.json
+   ```
+   → sign into Google, open the "Incoming Property Leads" space, press Enter.
+   ```
+   python scripts\rei_login.py --config config.json
+   ```
+   → sign into REI BlackBook. REI emails a one-time verification link the first
+   time — open it in that same window, then press Enter after you reach the
+   dashboard.
 
 ---
 
-## Run
+## Google setup (service account, one-time)
 
-```bash
-python run.py --config config.json --dry-run     # parse + preview, write nothing
-python run.py --config config.json               # full run (writes rows + REI)
-python run.py --config config.json --no-rei      # write rows, skip REI lookup
-```
+1. In [Google Cloud Console](https://console.cloud.google.com/) create a project
+   (e.g. *Twin Lead Pulse*) and **enable the Google Sheets API**.
+2. Create a **Service Account**, then **Add Key → JSON**; save the downloaded file
+   as **`credentials.json`** in the `twinleadpulse` folder.
+3. Open the dashboard Sheet → **Share** → add the service account's email
+   (`…@….iam.gserviceaccount.com`) as **Editor**.
 
-Offline logic tests (no network/credentials needed):
-```bash
-python tests/test_parsing.py
-```
+No billing or credit card is required — the Sheets API is free at this volume.
 
 ---
 
-## Guardrails (by design)
+## How REI matching works
 
-- **REI is read-only** — the automation only navigates and reads. It never sends
-  texts, applies tags, or changes anything.
-- **Dashboard tabs are never edited** — only the `Raw Lead Data` tab is appended to.
-- **Fail safe** — any field the code can't read confidently is left blank with a
-  `Needs Verification` note rather than guessed.
-- Credentials stay local (`.rei_profile/`, `credentials.json`, `token.json` are
-  all git-ignored).
+- REI's search is **"Search By Name, Phone"**, so the tool searches by **phone
+  first** (most reliable), then seller name. Property address is not used for
+  search (REI doesn't index it).
+- On a match it opens `https://my.reiblackbook.com/contacts/<id>` and reads:
+  - **REI Contact Link** = that URL
+  - **REI Tags** = every tag on the contact
+  - **REI Status** = inferred from the contact's messages (Active / Sold / Listed /
+    Opted-out / Not Interested / Wrong Number / No Contact Yet)
+- If no contact matches, the row is left with `REI Match? = No` and flagged for
+  manual review — never guessed.
 
-## Tuning notes / known limits
+---
 
-- **REI DOM selectors** (`pipeline/rei_client.py`, marked `# TUNE`) are best-effort;
-  REI BlackBook has no public API and its markup isn't documented. If a lookup
-  can't find the search box / tags / tabs on your account, capture the page HTML
-  and adjust the selector lists. Everything degrades to `Needs Verification`
-  instead of crashing, so a stale selector is safe, just less complete.
-- **County** is never inferred from ZIP (that would be guessing). If a
-  notification omits county, the row is flagged for verification.
-- **REI status** is inferred from message keywords (Active/Sold/Listed/Opted-out/
-  etc.); treat it as a hint and confirm the flagged ones.
+## What gets written (and what's protected)
+
+Only the **Raw Lead Data** tab is touched. Manual columns written:
+
+`A–H` Lead ID · Seller Name/Phone/Email · Property Address · City · County · ZIP
+`I–J` Date Received · Time Received (real date/time, **Pacific**)
+`S–Z` Source · Google Chat Timestamp · Duplicate? · Verification Status · Original Source Location · Notes · Date Entered · Entered By
+`AD–AG` **REI Match? · REI Contact Link · REI Tags · REI Status** (appended)
+
+**Never touched:** the formula columns `K–R` (Day of Week, Hour, Week, Month,
+Year) and `AA–AC` (`_DupFlag/_IssueFlag/_IssueText`), and every other tab
+(Dashboard, Duplicate Review, Data Summary, Executive Summary, Issues).
+
+---
+
+## Guardrails
+
+- **Read-only in REI** — the tool only navigates and reads; it never sends texts,
+  applies tags, or changes anything.
+- **Never guesses** — a missing/unreadable field is left blank and flagged
+  `Needs Verification`, never invented (e.g. county, which isn't in the messages).
+- **Deduped** — leads already in the Sheet are skipped, so re-runs don't duplicate.
+- **Credentials stay local** — `credentials.json` and the browser profiles
+  (`.chat_profile`, `.rei_profile`) are git-ignored and never leave the machine.
+
+---
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `Python was not found` | Install Python and re-open the terminal (check "Add to PATH"). |
+| `not a git repository` / `can't open run.py` | You're not in the folder — run `cd twinleadpulse` first. |
+| `Client secrets must be for a web or installed app` | `config.json` has `auth_mode` wrong, or `credentials.json` is the wrong key type — use the **service-account** JSON with `auth_mode: service_account`. |
+| REI keeps asking to verify email | Log in once fully in the script's own window (open the emailed link there), then press Enter. |
+| REI page won't load (Chat does) | Network is blocking the automated browser — use a phone hotspot or whitelist `my.reiblackbook.com`. |
+| REI shows `match=No` for everyone | Make sure you're logged into REI in the script's profile; the window must be desktop-width (handled automatically). |
+| Only new leads matter | The tool skips anything already in the Sheet; that's expected. |
+
+Debug helpers: `--rei-dump` (prints REI page structure) and
+`--rei-search "<query>"` (types a query into REI search and reports the result).
+
+---
+
+## Tests
+
+Offline logic (parsing, timezone, dedup, timestamp resolution) — no network/keys:
+```
+python tests\test_parsing.py
+```
