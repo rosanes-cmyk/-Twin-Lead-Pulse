@@ -12,6 +12,7 @@
   "original_source_location": "Google Chat",
   "lead_id_prefix": "PPL-",
   "skip_confirmed_duplicates": true,
+  "fill_county_from_zip": true,
   "rei": {
     "enabled": true,
     "profile_dir": ".rei_profile",

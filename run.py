@@ -83,6 +83,22 @@ def main(argv=None) -> int:
     leads = parse_notifications(raw, cfg.leads_format, cfg.source_timezone)
     print(f"Parsed {len(leads)} lead notification(s)")
 
+    # Fill county from ZIP (deterministic lookup) when it's not in the message.
+    if getattr(cfg, "fill_county_from_zip", True):
+        from pipeline.geo import zip_to_county
+        filled = 0
+        for lead in leads:
+            if not lead.county and lead.zip_code:
+                c = zip_to_county(lead.zip_code)
+                if c:
+                    lead.county = c
+                    lead.notes = " | ".join(
+                        p for p in lead.notes.split(" | ") if "county" not in p.lower()
+                    )
+                    filled += 1
+        if filled:
+            print(f"Filled county from ZIP for {filled} lead(s)")
+
     today = _today_pacific()
     for lead in leads:
         lead.date_entered = today

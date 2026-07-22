@@ -67,6 +67,9 @@ class Config:
     # Essential for recurring runs that re-read the whole Chat history each time.
     # "Possible" duplicates are still written and flagged for review.
     skip_confirmed_duplicates: bool = True
+    # Fill County from ZIP code (deterministic lookup via pgeocode) when the
+    # message doesn't include it. Set false to leave county blank + flagged.
+    fill_county_from_zip: bool = True
     rei: ReiConfig = field(default_factory=ReiConfig)
     chat: ChatConfig = field(default_factory=ChatConfig)
 
