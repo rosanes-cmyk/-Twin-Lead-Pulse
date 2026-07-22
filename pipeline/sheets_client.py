@@ -132,6 +132,23 @@ class SheetWriter:
         return last_data + 1
 
     # --- writing ---------------------------------------------------------
+    def write_leads(self, leads: list, start_row: int) -> None:
+        """Batch-write many leads at once (3 API calls total, not 3 per row).
+
+        Writes the manual blocks (A-J, S-Z) and the REI block (AD-AG); formula
+        columns are left untouched. Needed for bulk loads (hundreds of rows)
+        without hitting Sheets rate limits.
+        """
+        if not leads:
+            return
+        end_row = start_row + len(leads) - 1
+        for start_letter, attrs in (MANUAL_BLOCK_A, MANUAL_BLOCK_S, REI_BLOCK_AD):
+            matrix = [[getattr(l, a, "") for a in attrs] for l in leads]
+            start = _a1_index(start_letter)
+            end_letter = _col_letter(start + len(attrs) - 1)
+            rng = f"{start_letter}{start_row}:{end_letter}{end_row}"
+            self.ws.update(rng, matrix, value_input_option="USER_ENTERED")
+
     def write_lead(self, lead: Lead, row: int) -> None:
         for start_letter, attrs in (MANUAL_BLOCK_A, MANUAL_BLOCK_S, REI_BLOCK_AD):
             values = [getattr(lead, a, "") for a in attrs]

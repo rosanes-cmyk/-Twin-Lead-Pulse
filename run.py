@@ -148,22 +148,17 @@ def main(argv=None) -> int:
     else:
         print("Skipping REI enrichment.")
 
-    # --- write rows ---
+    # --- write rows (batched — 3 API calls total, handles hundreds of rows) ---
     row = writer.next_row()
-    written = skipped = 0
-    for lead in leads:
-        if skip_dupes and lead.duplicate == "Yes":
-            print(f"  skip (already in sheet): {lead.property_address or lead.seller_name}")
-            skipped += 1
-            continue
-        writer.write_lead(lead, row)
-        print(f"  wrote row {row}: {lead.lead_id}  {lead.property_address or '(no address)'}"
+    writer.write_leads(to_write, row)
+    written = len(to_write)
+    skipped = len(leads) - written
+    for i, lead in enumerate(to_write):
+        print(f"  row {row + i}: {lead.lead_id}  {lead.property_address or '(no address)'}"
               f"  [{lead.duplicate}] REI={lead.rei_match or '-'}")
-        row += 1
-        written += 1
 
     print(f"\nDone. {written} lead(s) written to '{cfg.worksheet_name}', {skipped} skipped as duplicates.")
-    needs = sum(1 for l in leads if l.verification_status not in ("Verified", ""))
+    needs = sum(1 for l in to_write if l.verification_status not in ("Verified", ""))
     print(f"Needs review: {needs}")
     return 0
 
@@ -261,6 +256,18 @@ def _enrich_sheet(cfg) -> int:
 
     print(f"Enriching {len(targets)} existing row(s) via REI (read-only)...")
     updated = 0
+    buf: list = []
+    buf_start = None
+
+    def flush():
+        nonlocal buf, buf_start
+        if not buf:
+            return
+        end = buf_start + len(buf) - 1
+        ws.update(f"AD{buf_start}:AG{end}", buf, value_input_option="USER_ENTERED")
+        buf = []
+        buf_start = None
+
     with ReiClient(cfg.rei) as rei:
         for rownum, row in targets:
             lead = Lead(
@@ -269,12 +276,17 @@ def _enrich_sheet(cfg) -> int:
                 property_address=cell(row, "E"),
             )
             r = rei.enrich(lead)
-            ws.update(f"AD{rownum}:AG{rownum}",
-                      [[r.match, r.contact_link, r.tags, r.status]],
-                      value_input_option="USER_ENTERED")
+            if buf and rownum != buf_start + len(buf):   # non-contiguous -> flush first
+                flush()
+            if buf_start is None:
+                buf_start = rownum
+            buf.append([r.match, r.contact_link, r.tags, r.status])
             updated += 1
             print(f"  row {rownum}: {lead.seller_name or lead.property_address} -> "
                   f"{r.match} {r.contact_link or ''} [{r.status or '-'}]")
+            if len(buf) >= 30:                           # periodic flush (resilience + rate limits)
+                flush()
+    flush()
     print(f"\nDone. REI data written to {updated} row(s).")
     return 0
 
