@@ -103,6 +103,74 @@ class ChatClient:
         except Exception:
             pass
 
+    def _dom_lead_timestamps(self) -> list:
+        """Read each lead message's EXACT timestamp from the DOM.
+
+        Google Chat stores an epoch timestamp as a data-* attribute on each
+        message. For every element containing exactly one lead, we find the
+        nearest epoch attribute. Returns [{ts, text}] (ts may be None).
+        """
+        js = r"""
+        () => {
+          const out = []; const seen = new Set();
+          const nodes = document.querySelectorAll('div,span,li,section,c-wiz');
+          for (const el of nodes) {
+            const txt = el.innerText || '';
+            if ((txt.match(/NEW LEAD - PROPERTY LEADS/g) || []).length !== 1) continue;
+            if (txt.length > 1600) continue;              // skip big ancestors
+            let ts = null, node = el;
+            for (let up = 0; up < 6 && node && !ts; up++) {
+              const cands = [node].concat(Array.from(node.children || []));
+              for (const c of cands) {
+                if (!c.attributes) continue;
+                for (const a of c.attributes) {
+                  if (/(timestamp|time|ts|date|created)/i.test(a.name) && /^\d{10,13}$/.test(a.value)) {
+                    ts = a.value; break;
+                  }
+                }
+                if (ts) break;
+              }
+              node = node.parentElement;
+            }
+            const key = txt.slice(0, 90);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push({ts: ts, text: txt});
+          }
+          return out;
+        }"""
+        try:
+            return self.page.evaluate(js) or []
+        except Exception:
+            return []
+
+    @staticmethod
+    def _epoch_to_iso(ts) -> str:
+        try:
+            n = int(ts)
+        except (TypeError, ValueError):
+            return ""
+        sec = n / 1000.0 if n > 10_000_000_000 else float(n)
+        try:
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+            return datetime.fromtimestamp(sec, ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _inject_ts(text: str, iso: str) -> str:
+        lines = text.splitlines()
+        out, done = [], False
+        for ln in lines:
+            out.append(ln)
+            if not done and "NEW LEAD" in ln.upper():
+                out.append(f"Google Chat Timestamp: {iso}")
+                done = True
+        if not done:
+            out.insert(0, f"Google Chat Timestamp: {iso}")
+        return "\n".join(out)
+
     def _main_text(self) -> str:
         """innerText of the conversation region (not the member roster)."""
         js = """
@@ -141,6 +209,7 @@ class ChatClient:
         self.page.wait_for_timeout(5000)  # let Chat's app shell render
 
         merged: dict[str, str] = {}     # dedup-key -> enriched block
+        dom_keys: set[str] = set()      # leads whose EXACT time came from the DOM
         snapshots: list[str] = []
         stable = 0
         stable_limit = max(12, getattr(self.cfg, "stable_rounds", 12))
@@ -149,22 +218,38 @@ class ChatClient:
             if snap and (not snapshots or snap != snapshots[-1]):
                 snapshots.append(snap)
             added = 0
-            # Resolve per-snapshot (each window has locally-correct divider
-            # context); keep the version of each lead that actually has a date.
+
+            # 1) EXACT timestamps from the DOM (authoritative, per message).
+            for item in self._dom_lead_timestamps():
+                iso = self._epoch_to_iso(item.get("ts"))
+                if not iso:
+                    continue
+                block = self._inject_ts(item.get("text", ""), iso)
+                key = self._dedup_key(block)
+                if key not in merged:
+                    added += 1
+                merged[key] = block         # DOM time wins over any text guess
+                dom_keys.add(key)
+
+            # 2) Text fallback only for leads the DOM didn't give us a time for.
             for block in leads_from_conversation(snap, now):
                 key = self._dedup_key(block)
+                if key in dom_keys:
+                    continue
                 has_ts = "Google Chat Timestamp:" in block
                 if key not in merged:
                     merged[key] = block
                     added += 1
                 elif has_ts and "Google Chat Timestamp:" not in merged[key]:
                     merged[key] = block
+
             self._scroll_up_all()
             self.page.wait_for_timeout(self.cfg.scroll_pause_ms)
             stable = stable + 1 if added == 0 else 0
             if stable >= stable_limit:
                 break
-        print(f"  (scanned to top; found {len(merged)} lead message(s))")
+        print(f"  (scanned to top; found {len(merged)} lead message(s); "
+              f"{len(dom_keys)} with exact DOM timestamps)")
 
         try:
             from pathlib import Path
