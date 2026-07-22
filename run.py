@@ -52,6 +52,7 @@ def main(argv=None) -> int:
                     help="backfill REI Match/Link/Tags/Status onto rows already in the sheet")
     ap.add_argument("--clear-leads", action="store_true",
                     help="clear ALL lead rows from Raw Lead Data (start fresh); asks to confirm")
+    ap.add_argument("--yes", action="store_true", help="skip the confirmation prompt (for --clear-leads)")
     ap.add_argument("--profile", help="override the REI browser profile dir (e.g. .chat_profile)")
     args = ap.parse_args(argv)
 
@@ -69,7 +70,7 @@ def main(argv=None) -> int:
         return _enrich_sheet(cfg)
 
     if args.clear_leads:
-        return _clear_leads(cfg)
+        return _clear_leads(cfg, skip_confirm=args.yes)
 
     if args.from_chat or cfg.leads_source == "chat":
         raw = _read_from_chat(cfg)
@@ -216,7 +217,7 @@ def _rei_dump(cfg) -> int:
     return 0
 
 
-def _clear_leads(cfg) -> int:
+def _clear_leads(cfg, skip_confirm: bool = False) -> int:
     """Clear ALL lead rows from Raw Lead Data so you can start fresh.
 
     Clears only the manual + REI columns (A-J, S-Z, AD-AG); the formula columns
@@ -235,9 +236,10 @@ def _clear_leads(cfg) -> int:
 
     print(f"This will CLEAR all lead data in rows {hr + 1}-{last} of "
           f"'{cfg.worksheet_name}' (dashboard formulas are kept).")
-    if input("Type YES to confirm: ").strip() != "YES":
-        print("Cancelled — nothing changed.")
-        return 0
+    if not skip_confirm:
+        if input("Type YES to confirm: ").strip() != "YES":
+            print("Cancelled — nothing changed.")
+            return 0
 
     ranges = [f"A{hr + 1}:J{last}", f"S{hr + 1}:Z{last}", f"AD{hr + 1}:AG{last}"]
     ws.batch_clear(ranges)
