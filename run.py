@@ -56,7 +56,9 @@ def main(argv=None) -> int:
     ap.add_argument("--relabel-heatmap", action="store_true",
                     help="relabel the Dashboard heatmap hour headers 0-23 as 12 AM..11 PM")
     ap.add_argument("--revert", action="store_true", help="with --relabel-heatmap: restore 0-23")
-    ap.add_argument("--tab", default="Dashboard", help="worksheet tab for --relabel-heatmap")
+    ap.add_argument("--tab", default="Dashboard", help="worksheet tab for --relabel-heatmap / --heatmap-legend")
+    ap.add_argument("--heatmap-legend", action="store_true",
+                    help="add a plain-English hour legend to the heatmap title (keeps counts working)")
     ap.add_argument("--profile", help="override the REI browser profile dir (e.g. .chat_profile)")
     args = ap.parse_args(argv)
 
@@ -78,6 +80,9 @@ def main(argv=None) -> int:
 
     if args.relabel_heatmap:
         return _relabel_heatmap(cfg, tab=args.tab, revert=args.revert)
+
+    if args.heatmap_legend:
+        return _heatmap_legend(cfg, tab=args.tab)
 
     if args.from_chat or cfg.leads_source == "chat":
         raw = _read_from_chat(cfg)
@@ -234,6 +239,27 @@ def _rei_dump(cfg) -> int:
         except Exception:
             pass
     return 0
+
+
+def _heatmap_legend(cfg, tab: str = "Dashboard") -> int:
+    """Append a plain-English hour legend to the heatmap title cell (safe — it's
+    a label, so the numeric header and its count formulas keep working)."""
+    from pipeline.sheets_client import open_named_worksheet
+    from gspread.utils import rowcol_to_a1
+
+    ws = open_named_worksheet(cfg, tab)
+    values = ws.get_all_values()
+    legend = (" — Hours are 24-hour time: 0 = 12 AM (midnight), 6 = 6 AM, "
+              "12 = 12 PM (noon), 18 = 6 PM, 23 = 11 PM")
+    for r, row in enumerate(values, start=1):
+        for c, val in enumerate(row, start=1):
+            if "day of week x hour" in val.strip().lower():
+                base = val.split(" — Hours are 24-hour")[0].rstrip()
+                ws.update(rowcol_to_a1(r, c), [[base + legend]], value_input_option="RAW")
+                print(f"Added hour legend to the heatmap title on '{tab}'.")
+                return 0
+    print(f"Heatmap title not found on tab '{tab}'.")
+    return 1
 
 
 def _relabel_heatmap(cfg, tab: str = "Dashboard", revert: bool = False) -> int:
