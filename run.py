@@ -59,6 +59,8 @@ def main(argv=None) -> int:
     ap.add_argument("--tab", default="Dashboard", help="worksheet tab for --relabel-heatmap / --heatmap-legend")
     ap.add_argument("--heatmap-legend", action="store_true",
                     help="add a plain-English hour legend to the heatmap title (keeps counts working)")
+    ap.add_argument("--heatmap-ampm", action="store_true",
+                    help="show heatmap hours as 12 AM..11 PM AND keep counts (rewrites formulas by column position)")
     ap.add_argument("--profile", help="override the REI browser profile dir (e.g. .chat_profile)")
     args = ap.parse_args(argv)
 
@@ -83,6 +85,9 @@ def main(argv=None) -> int:
 
     if args.heatmap_legend:
         return _heatmap_legend(cfg, tab=args.tab)
+
+    if args.heatmap_ampm:
+        return _heatmap_ampm(cfg, tab=args.tab)
 
     if args.from_chat or cfg.leads_source == "chat":
         raw = _read_from_chat(cfg)
@@ -260,6 +265,98 @@ def _heatmap_legend(cfg, tab: str = "Dashboard") -> int:
                 return 0
     print(f"Heatmap title not found on tab '{tab}'.")
     return 1
+
+
+def _heatmap_ampm(cfg, tab: str = "Dashboard") -> int:
+    """Show the heatmap hour headers as readable clock hours (12 AM..11 PM)
+    WITHOUT breaking the counts.
+
+    The count formulas read the numeric hour out of each column's header cell, so
+    just relabeling the header to "12 AM" breaks them (that's what happened with
+    --relabel-heatmap). Instead we first rewrite every count formula to use the
+    *literal* hour number for its column (derived purely from the column's
+    position), so no formula depends on the header text any more. Only once every
+    formula is header-independent do we relabel the headers. A safety guard aborts
+    the relabel if any formula still points at the header row — so the counts can
+    never silently break.
+    """
+    import re
+    from pipeline.sheets_client import open_named_worksheet
+    from gspread.utils import rowcol_to_a1
+
+    ws = open_named_worksheet(cfg, tab)
+    values = ws.get_all_values()
+
+    # Locate the 'Day / Hr' corner cell (top-left of the heatmap grid).
+    target = None
+    for rr, row in enumerate(values, start=1):
+        for cc, val in enumerate(row, start=1):
+            if val.strip().lower().replace(" ", "") in ("day/hr", "day/hour"):
+                target = (rr, cc)
+                break
+        if target:
+            break
+    if not target:
+        print(f"Couldn't find the heatmap 'Day / Hr' header on tab '{tab}'.")
+        return 1
+    r, c = target
+
+    def col_letter(col1: int) -> str:
+        s = ""
+        while col1:
+            col1, rem = divmod(col1 - 1, 26)
+            s = chr(65 + rem) + s
+        return s
+
+    hour_cols = [c + 1 + k for k in range(24)]        # 1-based sheet columns
+    first_data_row, last_data_row = r + 1, r + 7      # 7 weekday rows
+    top_left = rowcol_to_a1(first_data_row, hour_cols[0])
+    bot_right = rowcol_to_a1(last_data_row, hour_cols[-1])
+
+    grid = ws.get(f"{top_left}:{bot_right}", value_render_option="FORMULA")
+
+    # In each column, replace the reference to *that column's* header cell (row r)
+    # with the literal hour index for the column's position.
+    new_grid = []
+    changed = 0
+    for gridrow in grid:
+        out_row = []
+        for ci in range(24):
+            val = gridrow[ci] if ci < len(gridrow) else ""
+            letter = col_letter(hour_cols[ci])
+            if isinstance(val, str) and val.startswith("="):
+                pat = re.compile(rf"(?<![A-Z])\$?{letter}\$?{r}(?![0-9])")
+                new_val, n = pat.subn(str(ci), val)      # ci == hour 0..23
+                changed += n
+                out_row.append(new_val)
+            else:
+                out_row.append(val)
+        new_grid.append(out_row)
+
+    if changed == 0:
+        print("No header-referencing formulas found — the heatmap may already be\n"
+              "position-based, or its layout differs. Nothing changed.")
+        return 1
+
+    ws.update(f"{top_left}:{bot_right}", new_grid, value_input_option="USER_ENTERED")
+
+    # SAFETY GUARD: re-read and confirm no formula still references the header row.
+    check = ws.get(f"{top_left}:{bot_right}", value_render_option="FORMULA")
+    stale = re.compile(rf"(?<![A-Z])\$?[A-Z]+\$?{r}(?![0-9])")
+    for gridrow in check:
+        for val in gridrow:
+            if isinstance(val, str) and val.startswith("=") and stale.search(val):
+                print("Safety guard: some formulas still reference the header row —\n"
+                      "NOT relabeling the headers, so the counts stay intact.")
+                return 1
+
+    # Safe now: relabel the 24 hour headers to readable clock hours.
+    labels = [f"{(h % 12) or 12} {'AM' if h < 12 else 'PM'}" for h in range(24)]
+    rng = f"{rowcol_to_a1(r, hour_cols[0])}:{rowcol_to_a1(r, hour_cols[-1])}"
+    ws.update(rng, [labels], value_input_option="RAW")
+    print(f"Done — heatmap hours now read 12 AM..11 PM on '{tab}', and the counts\n"
+          f"still work (rewrote {changed} formula reference(s) to the hour position).")
+    return 0
 
 
 def _relabel_heatmap(cfg, tab: str = "Dashboard", revert: bool = False) -> int:
